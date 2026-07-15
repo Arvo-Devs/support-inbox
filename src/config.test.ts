@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { normalizeConfig, type SupportInboxConfig } from "./config";
+import { createSupportInbox } from "./index";
 
 function baseConfig(partial: Partial<SupportInboxConfig> = {}): SupportInboxConfig {
   return {
@@ -31,6 +32,19 @@ test("normalizeConfig accepts a bare fromEmail address", () => {
 test("normalizeConfig throws at creation on an unparseable or empty fromEmail", () => {
   assert.throws(() => normalizeConfig(baseConfig({ fromEmail: "" })), /fromEmail/);
   assert.throws(() => normalizeConfig(baseConfig({ fromEmail: "not-an-address" })), /fromEmail/);
+});
+
+test("createSupportInbox with an empty API key constructs without throwing", () => {
+  // The Resend SDK constructor throws on an empty key; construction must stay
+  // lazy so an unconfigured inbox still serves its 503/401 paths per-request
+  // instead of taking down the whole surface at boot.
+  const original = console.warn;
+  console.warn = () => {};
+  try {
+    assert.doesNotThrow(() => createSupportInbox(baseConfig({ resendApiKey: "" })));
+  } finally {
+    console.warn = original;
+  }
 });
 
 test("normalizeConfig tolerates an empty key/secret (webhook 503s by design)", () => {

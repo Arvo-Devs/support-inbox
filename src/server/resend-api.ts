@@ -236,7 +236,11 @@ function unwrapListPayload(body: unknown): { items: unknown[]; hasMore: boolean 
 }
 
 export function createResendApi(apiKey: string): ResendApi {
-  const resend = new Resend(apiKey);
+  // Lazy: the SDK constructor throws on an empty key, which would take down
+  // the whole surface (health ping, webhook 503-unconfigured path) at
+  // creation time. Unconfigured must fail per-request, loudly, not at boot.
+  let resendClient: Resend | null = null;
+  const getResend = () => (resendClient ??= new Resend(apiKey));
 
   async function getJson(path: string): Promise<unknown> {
     const response = await fetch(`${RESEND_API_BASE_URL}${path}`, {
@@ -309,7 +313,7 @@ export function createResendApi(apiKey: string): ResendApi {
     },
 
     async sendReply(args, idempotencyKey) {
-      const response = await resend.emails.send(
+      const response = await getResend().emails.send(
         {
           from: args.from,
           to: args.to,
