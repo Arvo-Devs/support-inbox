@@ -96,6 +96,7 @@ Three tables: `support_threads`, `support_messages`, `support_attachments`. RLS 
 | `SUPPORT_INBOUND_ADDRESSES` | Comma-separated public addresses that create tickets. Empty = accept all inbound. |
 | `SUPPORT_ALIAS_MAP` | `alias=public` pairs, comma-separated — managed-alias routing for Gmail forwarding. |
 | `SUPPORT_INBOUND_WEBHOOK_SECRET` | `whsec_` of the `email.received` webhook pointing at `/api/webhooks/resend-inbound`. |
+| `SUPPORT_INBOX_ENABLED` | Launch gate (this repo's wiring): leave unset until the live inbound+reply e2e passes, then set `"true"`. While unset the Support tab, page, and admin API 404; the webhook stays live for fixture capture. |
 
 ## Routing infraagent.app mail via Gmail forwarding
 
@@ -115,6 +116,7 @@ The public domain keeps its Google Workspace mailboxes; Workspace keeps receivin
 - **Hard-bounced replies feed the host's Resend suppression webhook** when one exists (e.g. `/api/webhooks/resend`), which will suppress that address for other product email too. Known and accepted: an address that hard-bounces support mail will bounce product mail as well.
 - **Replies deliberately do not consult suppression lists.** A human explicitly replying to a customer outranks an automated suppression entry.
 - **v1 sync is the manual button.** A host scheduler can automate it by POSTing `{basePath}/sync` on a cron with an authorized session/credential.
+- **Sync responds `{ scanned, imported, skipped, failed }` and tolerates per-email failures.** One bad email (content fetch failing, mapping error) is logged (`[support-inbox] sync ingest failed`), counted in `failed`, and surfaced as an error toast — it never rolls back or blocks the rest of the run. Failed ids stay unknown, so the next sync retries them.
 
 ## Supply-chain defaults (once extracted to its own repo)
 
