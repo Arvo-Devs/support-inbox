@@ -1,144 +1,189 @@
-# @infra-agent/support-inbox
+# @arvo/support-inbox
 
-A self-hosted support-email inbox built on [Resend receiving](https://resend.com/docs/dashboard/receiving/introduction). Customers email your public support address; admins read and answer threads inside your own dashboard. Each project **imports and self-hosts** the package: its own DB tables, its own webhook endpoint and secret, its own Resend domain. Nothing is shared between installs, and improvements ship via a version bump that each host adopts on its own schedule.
+A self-hosted support-email inbox built on [Resend receiving](https://resend.com/docs/dashboard/receiving/introduction). Customers email your public support address; admins read and answer threads inside your own admin panel. Each project **imports and self-hosts** the package: its own DB tables, its own webhook endpoint and secret, its own Resend domain and API key. Nothing is shared between installs, and improvements ship via a version bump that each host adopts on its own schedule.
+
+Originally built and proven inside the infra-agent dashboard (Arvo-Devs/infra-agent#52); extracted here so any project can install it.
+
+## Installing
+
+Pin to a **commit SHA** (tags are movable labels; the SHA is the pin):
+
+```jsonc
+// package.json
+"dependencies": {
+  "@arvo/support-inbox": "github:Arvo-Devs/support-inbox#<full-commit-sha>"
+}
+```
+
+```ts
+// next.config.ts — the package ships TypeScript source, the host compiles it
+transpilePackages: ["@arvo/support-inbox"],
+```
+
+Updating a project = review `git diff <old-sha>..<new-sha>` in this repo, bump the SHA, `pnpm install`, commit the lockfile. Builds should use `--frozen-lockfile` so nothing changes out from under you.
+
+Imports:
+
+```ts
+import { createSupportInbox } from "@arvo/support-inbox";          // server
+import { SupportInboxPage, SupportUnreadBadge } from "@arvo/support-inbox/client";
+import { supportThreads, supportMessages } from "@arvo/support-inbox/schema";
+```
 
 ## Requirements
 
-- **Postgres + drizzle-orm.** The host passes a drizzle handle (`PgDatabase`) with a working `.transaction` — the package never opens its own connection.
-- **Resend** with a **full-access API key.** This is non-negotiable: sending-only keys cannot read inbound mail (the inbound list/get APIs and attachment links all require full access). Keep it server-only and prefer a dedicated per-app key so rotation stays isolated from your product-email key.
-- **@tanstack/react-query** in the host app (the client components use it).
-- **The ui-deps seam.** `src/ui/ui-deps.ts` is the only file that uses host path aliases: it expects `@/components/ui/*` primitives (Badge, Button, Card, ConfirmDialog, EmptyState, ErrorMessage, Input, Textarea) plus `cn` from `@/lib/utils`, and `toast` from sonner. Adapting to a different design system means editing exactly that file.
+- **Next.js (App Router) + React.** Route handlers are plain `(Request) => Response`, so other frameworks can mount them too; the client components need React 19 and @tanstack/react-query v5.
+- **Postgres + drizzle-orm.** The host passes a drizzle handle (`PgDatabase`) with a working `.transaction`; the package never opens its own connection.
+- **Resend with a full-access API key.** Sending-only keys cannot read inbound mail. Keep it server-only, and prefer a dedicated per-app key so rotation stays isolated from your product-email key.
+- **Tailwind CSS v4** for the UI. Add a source line so Tailwind sees the package's class names:
 
-## Mounting (in-repo)
+  ```css
+  /* globals.css */
+  @source "../node_modules/@arvo/support-inbox/src";
+  ```
 
-While the package lives in this monorepo there is no build step — the host compiles the TypeScript source directly:
+## UI theming
 
-1. **tsconfig path alias + include glob** (already present in `apps/dashboard/tsconfig.json`):
+The components are self-contained (vendored primitives on @base-ui/react, peer-installed). They style themselves with design-token CSS variables (`--color-card`, `--color-danger-soft`, ...):
 
-   ```jsonc
-   "paths": { "@support-inbox/*": ["../../packages/support-inbox/src/*"] },
-   "include": ["../../packages/support-inbox/src/**/*.ts", "../../packages/support-inbox/src/**/*.tsx"]
-   ```
+- If your app already defines these tokens (house design system), you're done.
+- Otherwise import the bundled defaults once:
 
-2. **Workspace dependency** on `@infra-agent/support-inbox` in the host's `package.json` (brings in `resend`; `drizzle-orm` is shared).
+  ```css
+  @import "@arvo/support-inbox/styles/tokens.css";
+  ```
 
-3. **Three host files** wire everything up (see `apps/dashboard/src/server/support/inbox.ts` and the two routes for the canonical example):
+Adapting to a completely different design system means editing exactly one file: `src/ui/ui-deps.ts` (the seam every component imports its primitives through).
 
-   **Server singleton** — lazy so nothing touches env or the DB at module-eval/build time:
+## Mounting
 
-   ```ts
-   // src/server/support/inbox.ts
-   let cached: ReturnType<typeof createSupportInbox> | null = null;
-   export function getSupportInbox() {
-     if (!cached) {
-       cached = createSupportInbox({
-         db: getAdminDb(),            // root handle; .transaction guaranteed
-         resendApiKey: env.SUPPORT_RESEND_API_KEY || env.RESEND_API_KEY || "",
-         fromEmail: env.SUPPORT_FROM_EMAIL || "...",
-         inboundAddresses: [...],     // optional; undefined = accept all
-         aliasMap: {...},             // optional; managed alias -> public address
-         webhookSecret: env.SUPPORT_INBOUND_WEBHOOK_SECRET || "",
-         authorize,                   // (req: Request) => Promise<actor | null>
-         lookupCustomer,              // optional customer link in thread view
-       });
-     }
-     return cached;
-   }
-   ```
+Three small host files (the config contract is `SupportInboxConfig` in `src/config.ts`):
 
-   **REST route handler** at the basePath (default `/api/admin/support`):
+**1. Server singleton** — lazy, so nothing touches env or the DB at build time:
 
-   ```ts
-   // src/app/api/admin/support/[...route]/route.ts
-   import { getSupportInbox } from "@/server/support/inbox";
-   export const runtime = "nodejs";
-   export const GET = (request: Request) => getSupportInbox().routeHandlers.GET(request);
-   export const POST = (request: Request) => getSupportInbox().routeHandlers.POST(request);
-   ```
+```ts
+// src/server/support/inbox.ts
+import { createSupportInbox } from "@arvo/support-inbox";
 
-   **Webhook route** — same pattern with `webhookHandler`:
+let cached: ReturnType<typeof createSupportInbox> | null = null;
+export function getSupportInbox() {
+  if (!cached) {
+    cached = createSupportInbox({
+      db,                                  // drizzle root handle (.transaction required)
+      resendApiKey: process.env.SUPPORT_RESEND_API_KEY ?? "",
+      fromEmail: "Acme Support <support@example.com>",
+      inboundAddresses: ["support@example.com", "contact@example.com"], // optional; undefined = accept all
+      aliasMap: { "support@<id>.resend.app": "support@example.com" },   // optional; for Gmail forwarding
+      webhookSecret: process.env.SUPPORT_INBOUND_WEBHOOK_SECRET ?? "",
+      authorize,                           // (req: Request) => Promise<{id, email?, name?} | null>
+      lookupCustomer,                      // optional: link a sender to your own user/org page
+    });
+  }
+  return cached;
+}
+```
 
-   ```ts
-   // src/app/api/webhooks/resend-inbound/route.ts
-   export const GET = (request: Request) => getSupportInbox().webhookHandler.GET(request);
-   export const POST = (request: Request) => getSupportInbox().webhookHandler.POST(request);
-   ```
+**2. Admin API route** (default basePath `/api/admin/support`):
 
-4. **Admin page** rendering `<SupportInboxPage />` from `@support-inbox/client`, plus (optionally) `<SupportUnreadBadge />` next to the nav label.
+```ts
+// src/app/api/admin/support/[...route]/route.ts
+import { getSupportInbox } from "@/server/support/inbox";
+export const runtime = "nodejs";
+export const GET = (request: Request) => getSupportInbox().routeHandlers.GET(request);
+export const POST = (request: Request) => getSupportInbox().routeHandlers.POST(request);
+```
 
-**`authorize` is the entire API auth boundary.** Page-level layout gates (like `/admin`'s) protect pages only; the REST and webhook routes rely entirely on the config's `authorize`. It receives the raw `Request` and returns the acting admin (`{ id, email?, name? }`) or `null`. Null renders a bare 404 **indistinguishable from an unknown route**, so the surface stays invisible to non-admins. Read the role fresh from the DB on every call (not from the session) so a revoked admin loses access on their next request. Returning an actor rather than a boolean lets replies store `actor_id` and a denormalized `actor_label` without joining your user table.
+**3. Webhook route** — same shape with `webhookHandler`:
+
+```ts
+// src/app/api/webhooks/resend-inbound/route.ts
+export const GET = (request: Request) => getSupportInbox().webhookHandler.GET(request);
+export const POST = (request: Request) => getSupportInbox().webhookHandler.POST(request);
+```
+
+Then render `<SupportInboxPage />` on an admin page, and optionally `<SupportUnreadBadge />` in your nav.
+
+**`authorize` is the entire API auth boundary.** It receives the raw `Request` and returns the acting admin or `null`. Null renders a bare 404 indistinguishable from an unknown route, so the surface stays invisible to non-admins. Read the admin role fresh from your DB on every call (not from a cached session) so a revoked admin loses access on the next request. Returning an actor (not a boolean) lets replies store `actor_id`/`actor_label` without joining your user table.
 
 ## Database
 
-Copy `migrations/0001_support_inbox.sql` **verbatim** — with a `-- copied from @infra-agent/support-inbox migrations/0001_support_inbox.sql` header — into the host's migration directory and let the host's migration runner apply it. Upgrades ship additive numbered migrations (`0002_...`, `0003_...`) that hosts copy the same way; the files are idempotent so re-application is safe.
+Copy `migrations/0001_support_inbox.sql` **verbatim** (with a `-- copied from @arvo/support-inbox migrations/0001_support_inbox.sql` header) into your migration directory and let your runner apply it. Upgrades ship additive numbered migrations that hosts copy the same way; every file is idempotent, so re-application is safe.
 
-Three tables: `support_threads`, `support_messages`, `support_attachments`. RLS is **deliberately disabled** on all three: the inbox is an instance-admin surface with no tenant context, so no org scoping applies. That is also why the config takes the root/admin DB handle.
+Three tables: `support_threads`, `support_messages`, `support_attachments`. RLS is deliberately disabled: the inbox is an instance-admin surface with no tenant context.
 
 ## Resend setup
 
 ### Dev (zero DNS)
 
-1. In Resend, create a **managed inbound address** — you get `something@<id>.resend.app` immediately, no DNS.
-2. Email it from any account, then press the inbox's **Sync** button. Sync pulls inbound mail through Resend's list API, so **no public URL or webhook is needed** — the full flow works on localhost.
+1. Create a **managed inbound address** in Resend: `something@<id>.resend.app`, no DNS needed.
+2. Email it from anywhere, press the inbox's **Sync** button. Sync pulls mail through Resend's list API, so no public URL or webhook is needed; the full flow works on localhost.
 
 ### Prod
 
-1. Verify your domain in Resend and enable receiving (MX), or use Gmail forwarding to a managed address (next section).
+1. Verify your domain in Resend and enable receiving (one MX record), **or** keep your existing mail provider and forward per-address into a managed alias (next section).
 2. Add a webhook endpoint `https://<host>/api/webhooks/resend-inbound` subscribed to **`email.received`**.
-3. Put that endpoint's signing secret in `SUPPORT_INBOUND_WEBHOOK_SECRET`. Every Resend webhook endpoint has its **own** `whsec_` — do not reuse the secret of another endpoint (e.g. a bounce/suppression webhook).
+3. Put that endpoint's signing secret in `SUPPORT_INBOUND_WEBHOOK_SECRET`. Every Resend webhook endpoint has its **own** `whsec_`; never reuse another endpoint's secret.
 
-### Environment variables
+### Suggested env vars
 
 | Variable | Purpose |
 | --- | --- |
-| `SUPPORT_RESEND_API_KEY` | Full-access Resend key (sending-only cannot read inbound mail). Falls back to `RESEND_API_KEY` in this repo's wiring. |
-| `SUPPORT_FROM_EMAIL` | Outbound sender, e.g. `Infra Agent Support <support@infraagent.app>`. |
-| `SUPPORT_INBOUND_ADDRESSES` | Comma-separated public addresses that create tickets. Empty = accept all inbound. |
-| `SUPPORT_ALIAS_MAP` | `alias=public` pairs, comma-separated — managed-alias routing for Gmail forwarding. |
-| `SUPPORT_INBOUND_WEBHOOK_SECRET` | `whsec_` of the `email.received` webhook pointing at `/api/webhooks/resend-inbound`. |
-| `SUPPORT_INBOX_ENABLED` | Launch gate (this repo's wiring): leave unset until the live inbound+reply e2e passes, then set `"true"`. While unset the Support tab, page, and admin API 404; the webhook stays live for fixture capture. |
+| `SUPPORT_RESEND_API_KEY` | Full-access Resend key (server-only). |
+| `SUPPORT_FROM_EMAIL` | Outbound sender, e.g. `Acme Support <support@example.com>`. |
+| `SUPPORT_INBOUND_ADDRESSES` | Comma-separated addresses that create tickets. Empty = accept all. |
+| `SUPPORT_ALIAS_MAP` | `alias=public` pairs for forwarding setups. |
+| `SUPPORT_INBOUND_WEBHOOK_SECRET` | `whsec_` of the `email.received` webhook. |
+| `SUPPORT_INBOX_ENABLED` | Launch gate: keep unset until the live e2e below passes. |
 
-## Routing infraagent.app mail via Gmail forwarding
+## Domains that already have mailboxes (Gmail/Workspace forwarding)
 
-The public domain keeps its Google Workspace mailboxes; Workspace keeps receiving and spam-filtering, and forwards support mail into Resend:
+If the domain's MX already points at Google (or another provider), do NOT move it; forward instead:
 
-- Use **per-address forwarding only** — a Gmail filter (`to:support@infraagent.app` → forward) or a Workspace Admin routing rule per address. **Never enable mailbox-wide auto-forwarding**: it forwards *everything* in that mailbox, not just support mail.
-- Forward **each public address to its own distinguishable managed alias** (e.g. `support@…` → `support@<id>.resend.app`, `contact@…` → `contact@<id>.resend.app`) and set `SUPPORT_ALIAS_MAP` accordingly. Forwarding can rewrite or drop headers; the alias map keys routing on the envelope (`received_for`) so the stored `inbound_address` stays deterministic regardless of header handling.
-- Gmail's forwarding-confirmation code email lands in Resend, not in a mailbox — find it via the **Sync** button or the dashboard's Received tab and enter the code in Gmail.
-- Gmail keeps a backup copy of everything it forwards, so nothing is lost if the app is down.
-- A fresh domain with no mailboxes can skip all of this and point MX straight at Resend — the code path is identical (`received_for` covers forwarded mail too, so both setups converge).
+- Use **per-address forwarding only**: a Gmail filter (`to:support@yourdomain` → forward) or a Workspace routing rule per address. Never mailbox-wide auto-forwarding (it forwards everything in that mailbox).
+- Forward each public address to its own **distinguishable managed alias** (`support@…` → `support@<id>.resend.app`) and set `aliasMap` accordingly. Forwarding can rewrite headers; the alias map keys routing on the envelope (`received_for`), keeping the stored `inbound_address` deterministic.
+- The forwarding-confirmation code email lands in Resend; find it via Sync or the Resend dashboard's Received tab.
+- Your provider keeps a backup copy of everything it forwards.
+- Fresh domains with no mailboxes skip all of this: point MX straight at Resend. Both setups converge on the same code path.
+
+## Launch gate (per install)
+
+Ship dark, then verify live before enabling:
+
+1. Deploy with `SUPPORT_INBOX_ENABLED` unset (admin UI/API 404; webhook stays live, secret-gated, for fixture capture).
+2. Send one real email (through your actual forwarding path, if any) to the inbound address; confirm the thread appears via Sync or webhook.
+3. Reply from the inbox; confirm it arrives threaded in the sender's mail client; reply back and confirm same-thread ingestion.
+4. Flip the flag.
+
+> **Outstanding, package-level:** the Resend inbound field-mapping layer (`src/server/resend-api.ts`) was written against documented payloads but has never been validated against a **captured live payload**, and the test fixtures are synthetic. The first install to run step 2 should capture the raw webhook JSON + retrieved email and contribute them back here as fixtures with a mapping test. Until then, treat the live e2e as mandatory, not optional.
 
 ## Behavior notes
 
-- **Replies are plain-text and sender-only.** CC recipients are displayed on messages, but reply-all is a v1.1 item.
-- **Attachments are metadata + on-demand signed links.** The DB stores filename/type/size; clicking fetches a short-lived signed URL from Resend. Expiry is driven by the API's `expires_at` — never a hard-coded window — and expired links render as "no longer available".
-- **Admin replies do not appear in Gmail's Sent folder.** Outbound mail goes through Resend; the app database is authoritative for outbound support mail.
-- **Hard-bounced replies feed the host's Resend suppression webhook** when one exists (e.g. `/api/webhooks/resend`), which will suppress that address for other product email too. Known and accepted: an address that hard-bounces support mail will bounce product mail as well.
-- **Replies deliberately do not consult suppression lists.** A human explicitly replying to a customer outranks an automated suppression entry.
-- **v1 sync is the manual button.** A host scheduler can automate it by POSTing `{basePath}/sync` on a cron with an authorized session/credential.
-- **Sync responds `{ scanned, imported, skipped, failed }` and tolerates per-email failures.** One bad email (content fetch failing, mapping error) is logged (`[support-inbox] sync ingest failed`), counted in `failed`, and surfaced as an error toast — it never rolls back or blocks the rest of the run. Failed ids stay unknown, so the next sync retries them.
+- **Replies are plain-text and sender-only.** CC recipients are displayed, not auto-included (reply-all is future work).
+- **Attachments are metadata + on-demand signed links**, expiry driven by the API's `expires_at`. Expired links render as "no longer available."
+- **Admin replies do not appear in your mail provider's Sent folder.** The app database is authoritative for outbound support mail.
+- **Replies deliberately skip suppression lists** (an explicit human reply outranks an automated suppression), and hard bounces will feed whatever bounce webhook the host already runs.
+- **Sync recovers missed or failed mail within the newest `SYNC_MAX_PAGES × SYNC_PAGE_SIZE` (250) inbound emails**, scanning every page up to the cap each run. Older gaps than that need Resend's dashboard. A host scheduler can automate sync by POSTing `{basePath}/sync` with an authorized credential.
+- **HTML bodies render in a sandboxed iframe**: no `allow-scripts`, no `allow-same-origin`, default-deny CSP, remote images blocked by default (tracking pixels included) with per-message opt-in. Links escape the sandbox into normal tabs; opened tabs get no opener reference.
 
-## Supply-chain defaults (once extracted to its own repo)
+## Supply-chain rules for this repo
 
-- Install pinned to a **commit SHA**: `"@infra-agent/support-inbox": "github:<owner>/support-inbox#<sha>"`, with `--frozen-lockfile` builds. Tags are human-readable markers only — the SHA is the pin.
-- Updating = review `git diff <old-sha>..<new-sha>`, bump the SHA, `pnpm install`, commit the lockfile.
-- The package **never has lifecycle scripts** (no postinstall) and must never be allowlisted in pnpm 10's build-script gate. If an update suddenly needs one, treat that as a red flag.
-- Dependency surface stays `resend` + `drizzle-orm` + peers (react, next, @tanstack/react-query, lucide-react, sonner). New transitive dependencies deserve scrutiny in the diff.
-- Repo hygiene: private repo, 2FA/passkey on all committers, branch protection on main, no third-party apps with write access.
+- No lifecycle scripts, ever (`postinstall` etc.). If a diff adds one, treat it as a red flag; never allowlist this package in pnpm's build-script gate.
+- Runtime dependency surface stays `resend` + `drizzle-orm`; UI libs are peers the host already has. New transitive dependencies deserve scrutiny in the update diff.
+- Private repo, 2FA on all committers, branch protection on `main`, no third-party apps with write access.
 
-## Optional hardening (not built in v1)
+## Optional hardening
 
-The package runs on whatever DB handle you give it. To cap the blast radius of a bad package version, create a per-project `support_inbox` postgres role granted **only** the three support tables and build the drizzle handle for this package from that role's connection string:
+Cap the blast radius of a bad version with a dedicated Postgres role granted only the three support tables, and build this package's drizzle handle from that role's connection string:
 
 ```sql
 CREATE ROLE support_inbox LOGIN PASSWORD '...';
-GRANT SELECT, INSERT, UPDATE, DELETE ON support_threads TO support_inbox;
-GRANT SELECT, INSERT, UPDATE, DELETE ON support_messages TO support_inbox;
-GRANT SELECT, INSERT, UPDATE, DELETE ON support_attachments TO support_inbox;
--- No other grants: a compromised version could touch support data,
--- but never users, API keys, or billing.
+GRANT SELECT, INSERT, UPDATE, DELETE ON support_threads, support_messages, support_attachments TO support_inbox;
 ```
 
-## HTML viewer security posture
+## Development
 
-Inbound HTML bodies render inside a **sandboxed iframe** with no `allow-scripts` and no `allow-same-origin`, under a default-deny CSP. Remote images are blocked by default (tracking pixels included) with a per-message opt-in to load them.
+```sh
+pnpm install          # no lifecycle scripts run
+pnpm test             # node:test via tsx
+pnpm typecheck        # tsc --noEmit
+```

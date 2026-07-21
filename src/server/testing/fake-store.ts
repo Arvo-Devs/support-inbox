@@ -40,7 +40,7 @@ export function makeThread(partial: Partial<ThreadRow> = {}): ThreadRow {
     customerName: null,
     status: "open",
     unread: true,
-    inboundAddress: "support@infraagent.app",
+    inboundAddress: "support@example.com",
     lastMessageAt: now,
     lastMessageSnippet: null,
     messageCount: 0,
@@ -505,7 +505,7 @@ export function makeReceivedEmail(
 ): ReceivedEmail {
   return {
     from: "Customer <customer@example.com>",
-    to: ["support@infraagent.app"],
+    to: ["support@example.com"],
     cc: [],
     replyTo: null,
     receivedFor: [],
@@ -526,20 +526,20 @@ export function makeConfig(
 ): ResolvedSupportInboxConfig {
   // Derive the parsed-sender fields from a fromEmail override the same way
   // normalizeConfig does, so tests only need to pass fromEmail.
-  const fromEmail = partial.fromEmail ?? "Infra Agent Support <support@infraagent.app>";
+  const fromEmail = partial.fromEmail ?? "Acme Support <support@example.com>";
   const fromParsed = parseAddress(fromEmail);
-  const fromAddress = fromParsed?.address ?? "support@infraagent.app";
+  const fromAddress = fromParsed?.address ?? "support@example.com";
   return {
     db: {} as never, // tests never touch the drizzle handle
     resendApiKey: "re_test",
     fromEmail,
     fromAddress,
     fromName: fromParsed?.name ?? null,
-    fromDomain: fromAddress.split("@")[1] ?? "infraagent.app",
-    inboundAddresses: ["support@infraagent.app", "contact@infraagent.app"],
+    fromDomain: fromAddress.split("@")[1] ?? "example.com",
+    inboundAddresses: ["support@example.com", "contact@example.com"],
     aliasMap: {},
     webhookSecret: `whsec_${Buffer.from("support-inbox-test-secret").toString("base64")}`,
-    authorize: async () => ({ id: "admin-1", email: "admin@infraagent.app", name: "Admin" }),
+    authorize: async () => ({ id: "admin-1", email: "admin@example.com", name: "Admin" }),
     lookupCustomer: null,
     basePath: "/api/admin/support",
     ...partial,

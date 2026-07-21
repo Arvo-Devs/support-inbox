@@ -8,7 +8,7 @@ function baseConfig(partial: Partial<SupportInboxConfig> = {}): SupportInboxConf
   return {
     db: {} as never,
     resendApiKey: "re_test",
-    fromEmail: "Infra Agent Support <support@infraagent.app>",
+    fromEmail: "Acme Support <support@example.com>",
     webhookSecret: "whsec_test",
     authorize: async () => null,
     ...partial,
@@ -17,9 +17,9 @@ function baseConfig(partial: Partial<SupportInboxConfig> = {}): SupportInboxConf
 
 test("normalizeConfig parses fromEmail into address, name, and domain", () => {
   const resolved = normalizeConfig(baseConfig());
-  assert.equal(resolved.fromAddress, "support@infraagent.app");
-  assert.equal(resolved.fromName, "Infra Agent Support");
-  assert.equal(resolved.fromDomain, "infraagent.app");
+  assert.equal(resolved.fromAddress, "support@example.com");
+  assert.equal(resolved.fromName, "Acme Support");
+  assert.equal(resolved.fromDomain, "example.com");
 });
 
 test("normalizeConfig accepts a bare fromEmail address", () => {

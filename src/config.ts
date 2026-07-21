@@ -28,7 +28,7 @@ export type SupportInboxConfig = {
    * isolated.
    */
   resendApiKey: string;
-  /** Outbound sender, e.g. `Infra Agent Support <support@infraagent.app>`. */
+  /** Outbound sender, e.g. `Acme Support <support@example.com>`. */
   fromEmail: string;
   /**
    * Public addresses that create tickets, matched (lowercased) against
@@ -37,7 +37,7 @@ export type SupportInboxConfig = {
   inboundAddresses?: string[];
   /**
    * Managed alias -> public address (e.g. `support@<id>.resend.app` ->
-   * `support@infraagent.app`). Makes Gmail-forwarding routing deterministic;
+   * `support@example.com`). Makes Gmail-forwarding routing deterministic;
    * matched aliases store the mapped public address as inbound_address.
    */
   aliasMap?: Record<string, string>;

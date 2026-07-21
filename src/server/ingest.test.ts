@@ -39,7 +39,7 @@ test("new inbound mail creates a thread with parsed fields, attachments, and rol
   const email = makeReceivedEmail({
     id: "email-1",
     from: "Jane Doe <jane@example.com>",
-    to: ["Support@InfraAgent.app"],
+    to: ["Support@Example.Com"],
     cc: ["Ops Team <OPS@Example.com>"],
     subject: "  Widget broken  ",
     text: "The widget fell apart",
@@ -68,7 +68,7 @@ test("new inbound mail creates a thread with parsed fields, attachments, and rol
   assert.equal(thread.normalizedSubject, normalizeSubject("  Widget broken  "));
   assert.equal(thread.customerEmail, "jane@example.com");
   assert.equal(thread.customerName, "Jane Doe");
-  assert.equal(thread.inboundAddress, "support@infraagent.app");
+  assert.equal(thread.inboundAddress, "support@example.com");
   assert.equal(thread.status, "open");
   assert.equal(thread.unread, true);
   assert.equal(thread.messageCount, 1);
@@ -84,7 +84,7 @@ test("new inbound mail creates a thread with parsed fields, attachments, and rol
   assert.equal(message.messageId, "<incoming-1@example.com>");
   assert.equal(message.fromEmail, "jane@example.com");
   assert.equal(message.fromName, "Jane Doe");
-  assert.deepEqual(message.toEmails, ["support@infraagent.app"]);
+  assert.deepEqual(message.toEmails, ["support@example.com"]);
   assert.deepEqual(message.ccEmails, ["ops@example.com"]);
   assert.equal(message.subject, "  Widget broken  ");
   assert.equal(message.textBody, "The widget fell apart");
@@ -106,8 +106,8 @@ test("new inbound mail creates a thread with parsed fields, attachments, and rol
 test("aliasMap translates a managed alias to the public inbound address", async () => {
   const email = makeReceivedEmail({ id: "email-2", to: ["support@abc123.resend.app"] });
   const config = makeConfig({
-    inboundAddresses: ["support@infraagent.app"],
-    aliasMap: { "support@abc123.resend.app": "support@infraagent.app" },
+    inboundAddresses: ["support@example.com"],
+    aliasMap: { "support@abc123.resend.app": "support@example.com" },
   });
   const { deps, store } = setup({ email, config });
 
@@ -115,7 +115,7 @@ test("aliasMap translates a managed alias to the public inbound address", async 
   expectIngested(result);
 
   assert.equal(store.state.threads.length, 1);
-  assert.equal(store.state.threads[0].inboundAddress, "support@infraagent.app");
+  assert.equal(store.state.threads[0].inboundAddress, "support@example.com");
 });
 
 test("References match routes the mail into the existing thread", async () => {
@@ -392,7 +392,7 @@ test("over-cap text body is stored capped with bodyTruncated", async () => {
 test("mail from our own from address is ignored as a loop", async () => {
   const email = makeReceivedEmail({
     id: "email-13a",
-    from: "Infra Agent Support <support@infraagent.app>",
+    from: "Acme Support <support@example.com>",
   });
   const { deps, store } = setup({ email });
 
@@ -403,7 +403,7 @@ test("mail from our own from address is ignored as a loop", async () => {
 });
 
 test("mail from an inbound address is ignored as a loop", async () => {
-  const email = makeReceivedEmail({ id: "email-13b", from: "contact@infraagent.app" });
+  const email = makeReceivedEmail({ id: "email-13b", from: "contact@example.com" });
   const { deps, store } = setup({ email });
 
   const result = await ingestReceivedEmail(deps, "email-13b");

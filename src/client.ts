@@ -1,4 +1,4 @@
-// Client entry for @infra-agent/support-inbox. The host mounts these inside
+// Client entry for @arvo/support-inbox. The host mounts these inside
 // its own QueryClientProvider (and Toaster); basePath defaults to
 // "/api/admin/support".
 
