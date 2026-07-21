@@ -169,7 +169,7 @@ Ship dark, then verify live before enabling:
 
 - No lifecycle scripts, ever (`postinstall` etc.). If a diff adds one, treat it as a red flag; never allowlist this package in pnpm's build-script gate.
 - Runtime dependency surface stays `resend` + `drizzle-orm`; UI libs are peers the host already has. New transitive dependencies deserve scrutiny in the update diff.
-- Private repo, 2FA on all committers, branch protection on `main`, no third-party apps with write access.
+- Public repo: 2FA on all committers, branch protection on `main`, no third-party apps with write access. Being public means installs need no auth tokens; it also means the update-diff review before bumping a SHA pin is the trust boundary — never skip it.
 
 ## Optional hardening
 
