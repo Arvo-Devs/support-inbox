@@ -1,0 +1,102 @@
+/*
+ * Design tokens for @arvo/support-inbox's vendored UI primitives.
+ *
+ * Minimal subset of infra-agent packages/ui/src/styles/globals.css (commit
+ * 1cbc809): only the custom properties and @theme mappings actually referenced
+ * by the classes in src/ui/vendor/* and src/client/*.
+ *
+ * House apps already define all of these tokens via their design system's
+ * globals.css and should NOT import this file (importing it would re-declare
+ * the tokens and could override the app's values depending on import order).
+ *
+ * Apps WITHOUT the house design system import it once in their Tailwind v4
+ * entry stylesheet, alongside an @source line so Tailwind generates the
+ * utilities this package uses, e.g.:
+ *
+ *   @import "tailwindcss";
+ *   @import "@arvo/support-inbox/styles/tokens.css";
+ *   @source "../node_modules/@arvo/support-inbox/src";
+ *
+ * Dark mode: values flip when a `.dark` class is present on an ancestor
+ * (typically <html>), matching the house convention.
+ */
+
+:root {
+  --foreground: #1a1731;
+  --card: #ffffff;
+  --muted: #eef0f8;
+  --muted-foreground: #6b6e8f;
+  --border: #e5e7f2;
+  --input: #d9dcec;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  /* Status hues lean cool (crimson rather than fire-engine red, teal-leaning
+     green) so they share an undertone with the indigo brand. Soft surfaces and
+     borders are mixed from the hue itself. --warning and --success are only
+     referenced by those mixes; their -strong/-soft/-border derivatives are the
+     tokens the Badge tones use directly. */
+  --danger: #e11d48;
+  --danger-strong: #9f1239;
+  --danger-soft: color-mix(in oklab, var(--danger) 9%, var(--card));
+  --danger-border: color-mix(in oklab, var(--danger) 25%, var(--card));
+  --warning: #b45309;
+  --warning-strong: #92400e;
+  --warning-soft: color-mix(in oklab, var(--warning) 9%, var(--card));
+  --warning-border: color-mix(in oklab, var(--warning) 28%, var(--card));
+  --success: #059669;
+  --success-strong: #047857;
+  --success-soft: color-mix(in oklab, var(--success) 9%, var(--card));
+  --success-border: color-mix(in oklab, var(--success) 25%, var(--card));
+  --ring: #818cf8;
+}
+
+.dark {
+  --foreground: #ececf8;
+  --card: #1c1932;
+  --muted: #262242;
+  --muted-foreground: #a3a1cc;
+  --border: #2e2a4d;
+  --input: #3a3563;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  /* Status hues brighten a step for contrast on dark surfaces; -strong flips
+     from "darker than base" to "lighter than base" because it's used as text
+     on the -soft tint, which is now mixed from a dark card. The mix
+     percentages rise too because 9% of a saturated hue disappears into
+     #1c1932. */
+  --danger: #f43f5e;
+  --danger-strong: #fda4af;
+  --danger-soft: color-mix(in oklab, var(--danger) 16%, var(--card));
+  --danger-border: color-mix(in oklab, var(--danger) 35%, var(--card));
+  --warning: #f59e0b;
+  --warning-strong: #fcd34d;
+  --warning-soft: color-mix(in oklab, var(--warning) 14%, var(--card));
+  --warning-border: color-mix(in oklab, var(--warning) 35%, var(--card));
+  --success: #10b981;
+  --success-strong: #6ee7b7;
+  --success-soft: color-mix(in oklab, var(--success) 14%, var(--card));
+  --success-border: color-mix(in oklab, var(--success) 35%, var(--card));
+  --ring: #818cf8;
+}
+
+@theme inline {
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-danger-strong: var(--danger-strong);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+  --color-warning-strong: var(--warning-strong);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-border: var(--warning-border);
+  --color-success-strong: var(--success-strong);
+  --color-success-soft: var(--success-soft);
+  --color-success-border: var(--success-border);
+}

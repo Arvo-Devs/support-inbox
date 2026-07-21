@@ -1,15 +1,16 @@
-// THE alias seam: the only file in this package that uses host path aliases.
-// Every host must resolve `@/components/ui/*` and `@/lib/utils` (this repo
-// maps them to packages/ui). On extraction, adapting a host to a different
-// design system means editing exactly this file.
+// THE design-system seam: the only place this package touches UI primitives.
+// They are vendored self-contained copies of the infra-agent house components
+// (see ./vendor, each file headers its source path and commit). Adapting this
+// package to another design system still means editing exactly this file:
+// point these exports at your own components with the same names and props.
 
-export { Badge } from "@/components/ui/badge";
-export { Button } from "@/components/ui/button";
-export { Card, CardContent } from "@/components/ui/card";
-export { ConfirmDialog } from "@/components/ui/dialog";
-export { EmptyState } from "@/components/ui/empty-state";
-export { ErrorMessage } from "@/components/ui/error-message";
-export { Input } from "@/components/ui/input";
-export { Textarea } from "@/components/ui/textarea";
-export { cn } from "@/lib/utils";
+export { Badge } from "./vendor/badge";
+export { Button } from "./vendor/button";
+export { Card, CardContent } from "./vendor/card";
+export { ConfirmDialog } from "./vendor/dialog";
+export { EmptyState } from "./vendor/empty-state";
+export { ErrorMessage } from "./vendor/error-message";
+export { Input } from "./vendor/input";
+export { Textarea } from "./vendor/textarea";
+export { cn } from "./vendor/utils";
 export { toast } from "sonner";
