@@ -133,7 +133,6 @@ Three tables: `support_threads`, `support_messages`, `support_attachments`. RLS 
 | `SUPPORT_INBOUND_ADDRESSES` | Comma-separated addresses that create tickets. Empty = accept all. |
 | `SUPPORT_ALIAS_MAP` | `alias=public` pairs for forwarding setups. |
 | `SUPPORT_INBOUND_WEBHOOK_SECRET` | `whsec_` of the `email.received` webhook. |
-| `SUPPORT_INBOX_ENABLED` | Launch gate: keep unset until the live e2e below passes. |
 
 ## Domains that already have mailboxes (Gmail/Workspace forwarding)
 
@@ -145,14 +144,14 @@ If the domain's MX already points at Google (or another provider), do NOT move i
 - Your provider keeps a backup copy of everything it forwards.
 - Fresh domains with no mailboxes skip all of this: point MX straight at Resend. Both setups converge on the same code path.
 
-## Launch gate (per install)
+## Launch checklist (per install)
 
-Ship dark, then verify live before enabling:
+There is no feature flag: the inbox is admin-only from day one (`authorize` gates every route) and boots safely when unconfigured (webhook 503s, page shows an empty inbox). The gate is rollout **order**: wire the real public address last.
 
-1. Deploy with `SUPPORT_INBOX_ENABLED` unset (admin UI/API 404; webhook stays live, secret-gated, for fixture capture).
-2. Send one real email (through your actual forwarding path, if any) to the inbound address; confirm the thread appears via Sync or webhook.
+1. Deploy with the inbox mounted, configured against a managed `@<id>.resend.app` test address. No customer mail can arrive yet.
+2. Send one real email (through your actual forwarding path, if any); confirm the thread appears via Sync or webhook.
 3. Reply from the inbox; confirm it arrives threaded in the sender's mail client; reply back and confirm same-thread ingestion.
-4. Flip the flag.
+4. Only then point the real public address at it (the MX record or the forwarding rule). Customer traffic starts after verification, by construction.
 
 > **Outstanding, package-level:** the Resend inbound field-mapping layer (`src/server/resend-api.ts`) was written against documented payloads but has never been validated against a **captured live payload**, and the test fixtures are synthetic. The first install to run step 2 should capture the raw webhook JSON + retrieved email and contribute them back here as fixtures with a mapping test. Until then, treat the live e2e as mandatory, not optional.
 
