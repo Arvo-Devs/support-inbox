@@ -4,6 +4,7 @@ import { parseAddress } from "../recipients";
 import type { RouterDeps } from "../router";
 import { toMessageDto, toThreadSummary } from "../serialize";
 import { makeSnippet } from "../snippet";
+import { isUniqueViolation, REPLY_ATTEMPT_UNIQUE_INDEX } from "../store";
 import type { MessageRow } from "../store";
 import { buildReplyHeaders, replySubject } from "../threading";
 
@@ -110,6 +111,23 @@ export async function reply(
       return inserted;
     });
   } catch (error) {
+    // Concurrent duplicate: two requests with the same attempt id can both
+    // pass the replay pre-check above; the loser then trips the unique index
+    // here. That is not a failure — Resend's idempotency key collapsed the
+    // sends and the winner recorded the message and rollup — so re-read the
+    // winner's row and answer exactly like the pre-check replay path.
+    if (isUniqueViolation(error, REPLY_ATTEMPT_UNIQUE_INDEX)) {
+      const winner = await deps.store.findMessageByReplyAttemptId(replyAttemptId);
+      if (winner) {
+        if (winner.threadId !== threadId) {
+          return Response.json(
+            { error: "replyAttemptId was already used for a different thread" },
+            { status: 409 },
+          );
+        }
+        return Response.json({ message: toMessageDto(winner, []) } satisfies ReplyResponse);
+      }
+    }
     console.error("[support-inbox] reply sent but not recorded", {
       threadId,
       replyAttemptId,

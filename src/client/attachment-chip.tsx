@@ -18,10 +18,19 @@ export function AttachmentChip({ attachment }: AttachmentChipProps) {
   async function handleOpen() {
     if (pending) return;
     setPending(true);
+    // Open the tab synchronously inside the click gesture; Safari blocks
+    // window.open after an await. Same-tab fallback when popups are blocked.
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
     try {
       const { url } = await getAttachmentUrl(basePath, attachment.id);
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (tab) {
+        tab.location.href = url;
+      } else {
+        window.location.assign(url);
+      }
     } catch (error) {
+      tab?.close();
       if (error instanceof ApiRequestError && error.status === 410) {
         toast.error("This attachment is no longer available");
       } else {

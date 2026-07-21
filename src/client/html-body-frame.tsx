@@ -5,7 +5,13 @@
 // Defense in depth:
 // - iframe sandbox WITHOUT allow-scripts and WITHOUT allow-same-origin, so
 //   even HTML that sneaks past sanitization can neither run script nor reach
-//   the parent origin. allow-popups lets links open in a new tab.
+//   the parent origin. allow-popups lets links open in a new tab, and
+//   allow-popups-to-escape-sandbox lets those tabs render as normal pages —
+//   without it they inherit this sandbox and open with scripts disabled. The
+//   escape token is safe here: it loosens nothing about the frame itself
+//   (still no allow-scripts / allow-same-origin), and the <base
+//   target="_blank"> popups keep the implicit noopener, so the opened site
+//   cannot reach back into the admin page.
 // - A restrictive CSP is injected into the srcdoc document. Remote images,
 //   fonts, and stylesheets are blocked by default, so tracking pixels cannot
 //   fire or leak the admin's IP. Resend inlines embedded images as data: URIs
@@ -55,7 +61,7 @@ export function HtmlBodyFrame({ html }: HtmlBodyFrameProps) {
   return (
     <div className="space-y-2">
       <iframe
-        sandbox="allow-popups"
+        sandbox="allow-popups allow-popups-to-escape-sandbox"
         referrerPolicy="no-referrer"
         srcDoc={doc}
         title="Email message"

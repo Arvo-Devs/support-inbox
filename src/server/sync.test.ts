@@ -50,7 +50,7 @@ test("sync imports unknown ids and skips known ones with exact counts", async ()
   assert.equal(resendApi.calls.getReceived.length, 2);
 });
 
-test("sync stops paging on a fully-known page", async () => {
+test("sync keeps paging past a fully-known page and imports deeper unknown mail", async () => {
   const store = createFakeStore({
     threads: [makeThread({ id: "t-1" })],
     messages: [
@@ -68,8 +68,9 @@ test("sync stops paging on a fully-known page", async () => {
       }),
     ],
   });
-  // A deeper page exists but must never be requested: a fully-known page
-  // means everything older is already imported.
+  // A fully-known page proves nothing about deeper pages: an email a
+  // previous run failed on (or a webhook-outage gap) can hide behind it, so
+  // the deeper page MUST still be requested and its unknown mail imported.
   const resendApi = createStubResendApi({
     pages: [[summary("known-1"), summary("known-2")], [summary("deeper-1")]],
     received: [makeReceivedEmail({ id: "deeper-1" })],
@@ -78,8 +79,9 @@ test("sync stops paging on a fully-known page", async () => {
 
   const res = await handler(syncRequest());
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { scanned: 2, imported: 0, skipped: 2, failed: 0 });
-  assert.equal(resendApi.calls.list.length, 1);
+  assert.deepEqual(await res.json(), { scanned: 3, imported: 1, skipped: 2, failed: 0 });
+  assert.equal(resendApi.calls.list.length, 2);
+  assert.ok(store.state.messages.some((m) => m.resendInboundId === "deeper-1"));
 });
 
 test("sync stops at the page cap when every page has unknown mail", async () => {
@@ -130,6 +132,37 @@ test("a poison email is counted as failed without blocking the rest of the run",
   assert.equal(store.state.messages.length, 2);
   // The failed id stays unknown, so the next run retries it.
   assert.ok(!store.state.messages.some((m) => m.resendInboundId === "poison-1"));
+});
+
+test("a poison email that failed on a deeper page is retried and imported by the next run", async () => {
+  const store = createFakeStore();
+  const pages = [[summary("new-1")], [summary("poison-1")]];
+
+  // Run 1: page 1 is healthy, page 2 holds "poison-1" whose content fetch
+  // throws a non-429 ResendApiError (no received entry) — counted as failed.
+  const firstApi = createStubResendApi({
+    pages,
+    received: [makeReceivedEmail({ id: "new-1" })],
+  });
+  const firstRes = await createRouter(makeConfig(), { store, resendApi: firstApi })(syncRequest());
+  assert.equal(firstRes.status, 200);
+  assert.deepEqual(await firstRes.json(), { scanned: 2, imported: 1, skipped: 0, failed: 1 });
+  assert.ok(!store.state.messages.some((m) => m.resendInboundId === "poison-1"));
+
+  // Run 2: page 1 is now fully known, but the run must still reach page 2
+  // and retry "poison-1" (whose content is available again) — this is the
+  // recovery the failure toast promises.
+  const secondApi = createStubResendApi({
+    pages,
+    received: [makeReceivedEmail({ id: "new-1" }), makeReceivedEmail({ id: "poison-1" })],
+  });
+  const secondRes = await createRouter(makeConfig(), { store, resendApi: secondApi })(
+    syncRequest(),
+  );
+  assert.equal(secondRes.status, 200);
+  assert.deepEqual(await secondRes.json(), { scanned: 2, imported: 1, skipped: 1, failed: 0 });
+  assert.equal(secondApi.calls.list.length, 2);
+  assert.ok(store.state.messages.some((m) => m.resendInboundId === "poison-1"));
 });
 
 test("sync returns 409 when another sync holds the lock", async () => {

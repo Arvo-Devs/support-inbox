@@ -4,6 +4,7 @@ import test from "node:test";
 
 import type { ReplyResponse } from "../shared/types";
 import { createRouter } from "./router";
+import type { SupportStore } from "./store";
 import {
   createFakeStore,
   createStubResendApi,
@@ -80,7 +81,7 @@ test("reply sends once with the attempt id as idempotency key and correct header
   assert.equal(sendCall.args.subject, "Re: Help needed");
   assert.equal(sendCall.args.text, "Thanks for reaching out.");
 
-  assert.match(sendCall.args.headers["Message-ID"] ?? "", /^<si-.+@infraagent\.app>$/);
+  assert.match(sendCall.args.headers["Message-ID"] ?? "", /^<si-.+@example\.com>$/);
   assert.equal(sendCall.args.headers["In-Reply-To"], "<b@customer.example>");
   assert.ok(
     (sendCall.args.headers.References ?? "").includes(
@@ -161,6 +162,60 @@ test("store failure after send returns 500 with exactly one send", async () => {
     error: "Reply was sent but could not be recorded; retrying will not re-send",
   });
   assert.equal(resendApi.calls.send.length, 1);
+});
+
+test("losing the insert race to a concurrent duplicate attempt replays the winner, not a 500", async () => {
+  const { store, resendApi } = setup();
+  const replyAttemptId = randomUUID();
+
+  // The winner's committed row, surfaced by findMessageByReplyAttemptId only
+  // AFTER the loser's insert trips the unique index (the pre-check ran while
+  // the winner was still in flight, so it saw nothing).
+  const winnerRow = makeMessage({
+    id: "winner-msg",
+    threadId: "t-1",
+    direction: "outbound",
+    replyAttemptId,
+    subject: "Re: Help needed",
+    textBody: "Concurrent hello.",
+    sentAt: new Date("2026-07-01T12:00:00Z"),
+  });
+
+  let insertAttempts = 0;
+  const racedStore: SupportStore = {
+    ...store,
+    async transaction<T>(fn: (tx: SupportStore) => Promise<T>): Promise<T> {
+      return await fn(racedStore);
+    },
+    async insertOutboundMessage(data) {
+      insertAttempts += 1;
+      if (insertAttempts === 1) {
+        // Simulate the winner committing first, then the unique index
+        // rejecting this insert with a 23505-shaped driver error.
+        store.state.messages.push(winnerRow);
+        const error = new Error(
+          'duplicate key value violates unique constraint "support_messages_reply_attempt_id_idx"',
+        ) as Error & { code: string; constraint_name: string };
+        error.code = "23505";
+        error.constraint_name = "support_messages_reply_attempt_id_idx";
+        throw error;
+      }
+      return await store.insertOutboundMessage(data);
+    },
+  };
+  const handler = createRouter(makeConfig(), { store: racedStore, resendApi });
+
+  const res = await handler(replyRequest({ text: "Concurrent hello.", replyAttemptId }));
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as ReplyResponse;
+  assert.equal(body.message.id, "winner-msg");
+
+  assert.equal(resendApi.calls.send.length, 1);
+  assert.equal(insertAttempts, 1);
+  assert.equal(
+    store.state.messages.filter((message) => message.replyAttemptId === replyAttemptId).length,
+    1,
+  );
 });
 
 test("empty reply text is rejected", async () => {

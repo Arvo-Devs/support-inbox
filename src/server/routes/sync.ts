@@ -12,6 +12,15 @@ export const SYNC_PAGE_SIZE = 50;
 /**
  * Bounded incremental import of anything the webhook missed, newest-first.
  *
+ * Every run scans the full window: up to SYNC_MAX_PAGES pages, skipping
+ * emails that are already stored and ingesting the rest. There is no
+ * "fully-known page" early exit on purpose — a known page proves nothing
+ * about deeper pages (a poison email that failed there, or a webhook outage
+ * older than one page of known mail, would otherwise never be reached again).
+ * The guarantee is therefore: any missed or previously-failed email within
+ * the newest SYNC_MAX_PAGES * SYNC_PAGE_SIZE emails is recovered by the next
+ * run. The per-page list calls are cheap and the page cap bounds the cost.
+ *
  * Everything runs inside one store transaction: the try-lock serializing
  * concurrent /sync runs is transaction-scoped, and nested ingest transactions
  * become drizzle savepoints on the same connection (which the store contract
@@ -57,9 +66,10 @@ export async function sync(deps: RouterDeps, config: ResolvedSupportInboxConfig)
       scanned += listing.emails.length;
       const known = await tx.findKnownInboundIds(listing.emails.map((email) => email.id));
       skipped += known.size;
+      // A fully-known page does NOT stop the run (see the module comment):
+      // deeper pages may still hold emails a previous run failed on or a
+      // webhook outage dropped.
       const unknown = listing.emails.filter((email) => !known.has(email.id));
-      // Fully-known page: everything older is already imported.
-      if (unknown.length === 0) break;
 
       for (const email of unknown) {
         try {

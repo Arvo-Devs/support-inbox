@@ -151,6 +151,33 @@ export interface SupportStore {
   ): Promise<{ attachment: AttachmentRow; messageResendInboundId: string | null } | null>;
 }
 
+/** Unique index guarding one outbound message per reply attempt (see schema). */
+export const REPLY_ATTEMPT_UNIQUE_INDEX = "support_messages_reply_attempt_id_idx";
+
+/**
+ * True when `error` is a Postgres unique-constraint violation (SQLSTATE
+ * 23505) on the given index/constraint. Drizzle rethrows the driver error —
+ * postgres-js exposes the index as `constraint_name`, node-postgres/neon as
+ * `constraint` — sometimes wrapped, so the cause chain is walked. Detection
+ * is deliberately narrow (code AND constraint name must match): callers
+ * handle one specific expected conflict, and anything else keeps propagating
+ * as a real failure.
+ */
+export function isUniqueViolation(error: unknown, constraintName: string): boolean {
+  let current: unknown = error;
+  while (current && typeof current === "object") {
+    const candidate = current as Record<string, unknown>;
+    if (
+      candidate.code === "23505" &&
+      (candidate.constraint_name ?? candidate.constraint) === constraintName
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
+}
+
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
