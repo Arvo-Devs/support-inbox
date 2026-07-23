@@ -1,6 +1,6 @@
 import type { ResolvedSupportInboxConfig } from "../config";
 import type { ResendApi } from "./resend-api";
-import { reply, setRead, setStatus } from "./routes/actions";
+import { compose, reply, setRead, setStatus } from "./routes/actions";
 import { attachmentUrl } from "./routes/attachments";
 import { sync } from "./routes/sync";
 import { listThreads, threadDetail, unreadCount } from "./routes/threads";
@@ -83,6 +83,7 @@ export function createRouter(
 
       if (segments.length === 1 && segments[0] === "threads") {
         if (method === "GET") return await listThreads(deps, config, url);
+        if (method === "POST") return await compose(deps, config, actor, body);
         return methodNotAllowed();
       }
 

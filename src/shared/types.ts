@@ -64,6 +64,9 @@ export type ThreadDetailResponse = {
 
 export type ReplyResponse = { message: MessageDto };
 
+/** POST /threads — a newly composed thread and its first outbound message. */
+export type ComposeResponse = { thread: ThreadSummary; message: MessageDto };
+
 export type ThreadResponse = { thread: ThreadSummary };
 
 export type SyncResponse = {

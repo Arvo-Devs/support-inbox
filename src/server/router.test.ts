@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import type {
+  ComposeResponse,
   ThreadDetailResponse,
   ThreadListResponse,
   ThreadResponse,
@@ -301,9 +302,66 @@ test("known path with the wrong method returns 405", async () => {
   assert.equal(getSync.status, 405);
   assert.deepEqual(await getSync.json(), { error: "Method not allowed" });
 
-  const postThreads = await handler(postJson(`${BASE}/threads`, {}));
-  assert.equal(postThreads.status, 405);
-  assert.deepEqual(await postThreads.json(), { error: "Method not allowed" });
+  // /threads accepts GET (list) and POST (compose); PUT is unsupported. A body
+  // is sent so it clears the non-GET JSON parse and reaches method dispatch.
+  const putThreads = await handler(
+    new Request(`${BASE}/threads`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+  );
+  assert.equal(putThreads.status, 405);
+  assert.deepEqual(await putThreads.json(), { error: "Method not allowed" });
+});
+
+test("POST /threads composes a new thread and is idempotent", async () => {
+  const { handler, resendApi } = setup();
+  const attemptId = randomUUID();
+
+  const res = await handler(
+    postJson(`${BASE}/threads`, {
+      to: "New Customer <new@example.com>",
+      subject: "Checking in",
+      text: "Following up on your account.",
+      replyAttemptId: attemptId,
+    }),
+  );
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as ComposeResponse;
+  assert.equal(body.thread.customerEmail, "new@example.com");
+  assert.equal(body.thread.customerName, "New Customer");
+  assert.equal(body.thread.subject, "Checking in");
+  assert.equal(body.thread.messageCount, 1);
+  assert.equal(body.message.direction, "outbound");
+  assert.deepEqual(body.message.toEmails, ["new@example.com"]);
+  assert.equal(resendApi.calls.send.length, 1);
+
+  // Replay with the same attempt id: same thread, no second send.
+  const replay = await handler(
+    postJson(`${BASE}/threads`, {
+      to: "new@example.com",
+      subject: "Checking in",
+      text: "Following up on your account.",
+      replyAttemptId: attemptId,
+    }),
+  );
+  assert.equal(replay.status, 200);
+  const replayBody = (await replay.json()) as ComposeResponse;
+  assert.equal(replayBody.thread.id, body.thread.id);
+  assert.equal(resendApi.calls.send.length, 1);
+});
+
+test("POST /threads validates recipient, subject, and text", async () => {
+  const { handler } = setup();
+  const base = { to: "x@example.com", subject: "Hi", text: "Hello", replyAttemptId: randomUUID() };
+
+  assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, to: "not-an-email" }))).status, 400);
+  assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, subject: "  " }))).status, 400);
+  assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, text: "" }))).status, 400);
+  assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, replyAttemptId: "nope" }))).status, 400);
+  // composing to the support address itself is rejected (would loop)
+  assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, to: "support@example.com" }))).status, 400);
 });
 
 test("custom basePath moves the mount point", async () => {
