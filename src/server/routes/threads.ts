@@ -36,7 +36,9 @@ export function decodeCursor(value: string): { lastMessageAt: Date; id: string }
 
 export async function listThreads(
   deps: RouterDeps,
-  config: ResolvedSupportInboxConfig,
+  // Unused here (kept for a uniform route signature); underscored so hosts with
+  // noUnusedParameters can compile the package source via transpilePackages.
+  _config: ResolvedSupportInboxConfig,
   url: URL,
 ): Promise<Response> {
   const statusRaw = url.searchParams.get("status");
