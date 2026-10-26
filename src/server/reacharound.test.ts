@@ -319,6 +319,7 @@ for (const [status, error] of [
   [409, "That reply attempt belongs to a different conversation."],
   [410, "This attachment is no longer available from Resend."],
   [422, "This brand has no verified sending domain to reply from."],
+  [429, "This brand has started 100 new conversations in the last 24 hours, the most allowed. Try again later. Replies to existing conversations still work."],
   [500, "The reply WAS sent but couldn't be recorded."],
   [502, "Sending the reply failed: Resend API 500."],
 ] as const) {
