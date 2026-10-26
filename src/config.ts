@@ -140,6 +140,14 @@ export function normalizeBasePath(value: string | undefined): string {
 }
 
 /**
+ * The fetch the Reacharound router calls. A plain function type rather than
+ * `typeof fetch`: runtimes add extra properties to their global fetch (Bun's
+ * types add `preconnect`), so `typeof fetch` would reject an ordinary
+ * `(input, init) => fetch(input, init)` passed by a host on that runtime.
+ */
+export type SupportInboxFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/**
  * Reacharound mode (PRO-5000): the app keeps the package's routes and screens,
  * but holds no support data. Reacharound — the hub that receives every
  * project's support mail — is the store, and each route forwards to its inbox
@@ -174,7 +182,7 @@ export type SupportInboxReacharoundConfig = {
   /** Per-request timeout for calls to Reacharound. Default: 15000 ms. */
   timeoutMs?: number;
   /** Test seam: the fetch used to call Reacharound. Default: global fetch. */
-  fetch?: typeof fetch;
+  fetch?: SupportInboxFetch;
 };
 
 export type ResolvedReacharoundConfig = {
@@ -185,7 +193,7 @@ export type ResolvedReacharoundConfig = {
   lookupCustomer: ((email: string) => Promise<SupportInboxCustomerLink | null>) | null;
   basePath: string;
   timeoutMs: number;
-  fetch: typeof fetch;
+  fetch: SupportInboxFetch;
 };
 
 /**

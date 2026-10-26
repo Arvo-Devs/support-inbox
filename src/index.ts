@@ -10,6 +10,7 @@ export type {
   SupportInboxActor,
   SupportInboxConfig,
   SupportInboxDb,
+  SupportInboxFetch,
   SupportInboxReacharoundConfig,
 } from "./config";
 
