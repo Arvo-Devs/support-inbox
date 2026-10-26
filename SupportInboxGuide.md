@@ -1,5 +1,12 @@
 # Support Inbox Integration Guide (`@arvo/support-inbox`)
 
+> **Reacharound mode is now the standard install (PRO-5000).** This guide describes the
+> **self-hosted** mode — your app stores and sends its own mail. For the standard install,
+> where Reacharound holds the mail and your app needs no tables, webhook or Resend key, follow
+> "Reacharound mode (standard)" in the README instead; only sections 2 (dependency), 4b
+> (admin route), 4d (page — with `sync={false}`), 4e (nav) and 5 (design tokens) still apply.
+
+
 A portable, step-by-step guide to adding a self-hosted support-email inbox to
 **any Next.js (App Router) admin panel**, using the [`@arvo/support-inbox`](https://github.com/Arvo-Devs/support-inbox)
 package. Customers email your public support address; your admins read and reply
