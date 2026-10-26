@@ -30,6 +30,20 @@ import {
 // difference; Reacharound speaks the package's `shared/types.ts` contract
 // (CWRAP-Inbox-API in Arvo-Devs/Reacharound-Emails).
 
+/**
+ * Reacharound's thread and attachment ids are uuids. Anything else in that
+ * path position — `..`, an encoded `/`, a dot — is refused here as a plain 404
+ * rather than placed into the upstream URL, where `..` would be resolved
+ * against Reacharound's path and could point the inbox key at a different
+ * endpoint than the route the admin called.
+ */
+const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function pathId(segment: string | undefined): string | null {
+  const decoded = safeDecode(segment ?? "");
+  return decoded !== null && ID_PATTERN.test(decoded) ? decoded : null;
+}
+
 /** The query parameters the list route accepts — nothing else is forwarded. */
 const LIST_PARAMS = ["status", "q", "cursor", "limit"] as const;
 
@@ -209,7 +223,7 @@ export function createReacharoundRouter(
       }
 
       if (segments.length === 2 && segments[0] === "threads") {
-        const threadId = safeDecode(segments[1] ?? "");
+        const threadId = pathId(segments[1]);
         if (threadId === null) return notFound();
         if (method === "GET") {
           return await withCustomer(
@@ -222,7 +236,7 @@ export function createReacharoundRouter(
       if (segments.length === 3 && segments[0] === "threads") {
         const action = segments[2] ?? "";
         if (!READ_WRITE_ACTIONS.has(action)) return notFound();
-        const threadId = safeDecode(segments[1] ?? "");
+        const threadId = pathId(segments[1]);
         if (threadId === null) return notFound();
         if (method !== "POST") return methodNotAllowed();
         const payload = write();
@@ -243,7 +257,7 @@ export function createReacharoundRouter(
       }
 
       if (segments.length === 3 && segments[0] === "attachments" && segments[2] === "url") {
-        const attachmentId = safeDecode(segments[1] ?? "");
+        const attachmentId = pathId(segments[1]);
         if (attachmentId === null) return notFound();
         if (method === "GET") {
           return await forward({

@@ -16,6 +16,8 @@ const RA = "https://ra.example";
 const PROJECT = "9fb8d83e-277c-4e0c-93e8-e73b699b6cc3";
 const KEY = "rik_test_key";
 const UPSTREAM = `${RA}/api/inbox/${PROJECT}`;
+const T1 = "9c19d2f4-494f-4eb6-b923-7d3475753fda";
+const A1 = "06477b85-cac9-4346-8158-c35cb9968ecd";
 
 type Call = { url: string; method: string; headers: Headers; body: unknown };
 
@@ -102,13 +104,13 @@ test("GET /threads/unread-count is not mistaken for a thread id", async () => {
   assert.equal(calls[0]!.url, `${UPSTREAM}/threads/unread-count`);
 });
 
-test("GET /threads/:id forwards the encoded id and returns the detail", async () => {
-  const detail = { thread: { id: "t 1", customerEmail: "fan@gmail.com" }, customer: null, messages: [] };
+test("GET /threads/:id forwards the id and returns the detail", async () => {
+  const detail = { thread: { id: T1, customerEmail: "fan@gmail.com" }, customer: null, messages: [] };
   const { handler, calls } = setup({ respond: () => Response.json(detail) });
-  const res = await handler(new Request(`${BASE}/threads/t%201`));
+  const res = await handler(new Request(`${BASE}/threads/${T1}`));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), detail);
-  assert.equal(calls[0]!.url, `${UPSTREAM}/threads/t%201`);
+  assert.equal(calls[0]!.url, `${UPSTREAM}/threads/${T1}`);
 });
 
 test("GET /threads/:id fills `customer` from the app's own lookup", async () => {
@@ -123,7 +125,7 @@ test("GET /threads/:id fills `customer` from the app's own lookup", async () => 
       },
     },
   });
-  const body = (await (await handler(new Request(`${BASE}/threads/t1`))).json()) as Record<string, unknown>;
+  const body = (await (await handler(new Request(`${BASE}/threads/${T1}`))).json()) as Record<string, unknown>;
   assert.deepEqual(seen, ["fan@gmail.com"]);
   assert.deepEqual(body.customer, { label: "Fan (Pro plan)", href: "/admin/users/42" });
 });
@@ -138,7 +140,7 @@ test("a failing customer lookup never breaks the thread view", async () => {
       },
     },
   });
-  const res = await handler(new Request(`${BASE}/threads/t1`));
+  const res = await handler(new Request(`${BASE}/threads/${T1}`));
   assert.equal(res.status, 200);
   assert.equal(((await res.json()) as Record<string, unknown>).customer, null);
 });
@@ -146,16 +148,16 @@ test("a failing customer lookup never breaks the thread view", async () => {
 test("POST reply/read/status forward the body plus the acting admin", async () => {
   const { handler, calls } = setup();
   const attempt = "2b0c7d43-5d3f-4c87-9a8e-1f1f4c1d2e3f";
-  await handler(postJson(`${BASE}/threads/t1/reply`, { text: "On its way", replyAttemptId: attempt }));
-  await handler(postJson(`${BASE}/threads/t1/read`, { read: true }));
-  await handler(postJson(`${BASE}/threads/t1/status`, { status: "closed" }));
+  await handler(postJson(`${BASE}/threads/${T1}/reply`, { text: "On its way", replyAttemptId: attempt }));
+  await handler(postJson(`${BASE}/threads/${T1}/read`, { read: true }));
+  await handler(postJson(`${BASE}/threads/${T1}/status`, { status: "closed" }));
 
   assert.deepEqual(
     calls.map((c) => [c.method, c.url]),
     [
-      ["POST", `${UPSTREAM}/threads/t1/reply`],
-      ["POST", `${UPSTREAM}/threads/t1/read`],
-      ["POST", `${UPSTREAM}/threads/t1/status`],
+      ["POST", `${UPSTREAM}/threads/${T1}/reply`],
+      ["POST", `${UPSTREAM}/threads/${T1}/read`],
+      ["POST", `${UPSTREAM}/threads/${T1}/status`],
     ],
   );
   assert.deepEqual(calls[0]!.body, { text: "On its way", replyAttemptId: attempt, actor: ACTOR });
@@ -188,7 +190,7 @@ test("POST /threads (start a conversation) forwards with the acting admin", asyn
 test("the browser cannot choose who is acting — `actor` comes from authorize", async () => {
   const { handler, calls } = setup();
   await handler(
-    postJson(`${BASE}/threads/t1/reply`, {
+    postJson(`${BASE}/threads/${T1}/reply`, {
       text: "hi",
       replyAttemptId: "x",
       actor: { email: "ceo@betterfans.link", name: "The CEO" },
@@ -201,16 +203,16 @@ test("an actor with no name sends only the email", async () => {
   const { handler, calls } = setup({
     overrides: { authorize: async () => ({ id: "a", email: "ops@betterfans.link" }) },
   });
-  await handler(postJson(`${BASE}/threads/t1/read`, { read: false }));
+  await handler(postJson(`${BASE}/threads/${T1}/read`, { read: false }));
   assert.deepEqual((calls[0]!.body as Record<string, unknown>).actor, { email: "ops@betterfans.link" });
 });
 
 test("GET /attachments/:id/url forwards and returns the signed link", async () => {
   const link = { url: "https://r.example/a", filename: "a.pdf", contentType: null, expiresAt: null };
   const { handler, calls } = setup({ respond: () => Response.json(link) });
-  const res = await handler(new Request(`${BASE}/attachments/att-1/url`));
+  const res = await handler(new Request(`${BASE}/attachments/${A1}/url`));
   assert.deepEqual(await res.json(), link);
-  assert.equal(calls[0]!.url, `${UPSTREAM}/attachments/att-1/url`);
+  assert.equal(calls[0]!.url, `${UPSTREAM}/attachments/${A1}/url`);
 });
 
 test("POST /sync is a harmless no-op that never calls Reacharound", async () => {
@@ -239,7 +241,7 @@ test("paths outside the mount, empty segments and unknown actions are 404s", asy
   for (const url of [
     "https://admin.example/api/other/threads",
     `${BASE}//threads`,
-    `${BASE}/threads/t1/delete`,
+    `${BASE}/threads/${T1}/delete`,
     `${BASE}/threads/%E0%A4%A/reply`,
   ]) {
     const res = await handler(url.endsWith("reply") ? postJson(url, {}) : new Request(url));
@@ -248,11 +250,23 @@ test("paths outside the mount, empty segments and unknown actions are 404s", asy
   assert.equal(calls.length, 0);
 });
 
+test("ids that could steer the upstream path (.., encoded /, non-uuid) are 404s, never forwarded", async () => {
+  const { handler, calls } = setup();
+  // (A lone `.` / `%2E` segment never arrives as an id: the URL parser collapses
+  // it first, so `/threads/%2E` is simply `/threads` — the list.)
+  for (const id of ["%2E%2E", "..%2F..%2Fdata", "abc", `${T1}%2F..`, "a%2Fb", `${T1}.`]) {
+    assert.equal((await handler(new Request(`${BASE}/threads/${id}`))).status, 404, id);
+    assert.equal((await handler(postJson(`${BASE}/threads/${id}/reply`, { text: "x" }))).status, 404, id);
+    assert.equal((await handler(new Request(`${BASE}/attachments/${id}/url`))).status, 404, id);
+  }
+  assert.equal(calls.length, 0);
+});
+
 test("wrong methods are 405s", async () => {
   const { handler, calls } = setup();
-  assert.equal((await handler(new Request(`${BASE}/threads/t1/reply`))).status, 405);
+  assert.equal((await handler(new Request(`${BASE}/threads/${T1}/reply`))).status, 405);
   assert.equal((await handler(postJson(`${BASE}/threads/unread-count`, {}))).status, 405);
-  assert.equal((await handler(postJson(`${BASE}/threads/t1`, {}))).status, 405);
+  assert.equal((await handler(postJson(`${BASE}/threads/${T1}`, {}))).status, 405);
   assert.equal((await handler(new Request(`${BASE}/sync`))).status, 405);
   assert.equal(calls.length, 0);
 });
@@ -260,7 +274,7 @@ test("wrong methods are 405s", async () => {
 test("a cross-origin write is refused (403) and not forwarded", async () => {
   const { handler, calls } = setup();
   const res = await handler(
-    postJson(`${BASE}/threads/t1/reply`, { text: "hi" }, { origin: "https://evil.example" }),
+    postJson(`${BASE}/threads/${T1}/reply`, { text: "hi" }, { origin: "https://evil.example" }),
   );
   assert.equal(res.status, 403);
   assert.equal(calls.length, 0);
@@ -270,7 +284,7 @@ test("a same-origin write behind a host-rewriting proxy is allowed", async () =>
   const { handler, calls } = setup();
   const res = await handler(
     postJson(
-      "http://internal:3000/api/admin/support/threads/t1/read",
+      `http://internal:3000/api/admin/support/threads/${T1}/read`,
       { read: true },
       { origin: "https://admin.example", "x-forwarded-host": "admin.example" },
     ),
@@ -282,7 +296,7 @@ test("a same-origin write behind a host-rewriting proxy is allowed", async () =>
 test("an invalid JSON body is a 400 and not forwarded", async () => {
   const { handler, calls } = setup();
   const res = await handler(
-    new Request(`${BASE}/threads/t1/reply`, { method: "POST", body: "not json" }),
+    new Request(`${BASE}/threads/${T1}/reply`, { method: "POST", body: "not json" }),
   );
   assert.equal(res.status, 400);
   assert.deepEqual(await res.json(), { error: "Invalid JSON body" });
@@ -291,7 +305,7 @@ test("an invalid JSON body is a 400 and not forwarded", async () => {
 
 test("an actor without an email is a loud 500 and nothing is sent", async () => {
   const { handler, calls } = setup({ overrides: { authorize: async () => ({ id: "a" }) } });
-  const res = await handler(postJson(`${BASE}/threads/t1/reply`, { text: "hi", replyAttemptId: "x" }));
+  const res = await handler(postJson(`${BASE}/threads/${T1}/reply`, { text: "hi", replyAttemptId: "x" }));
   assert.equal(res.status, 500);
   assert.match(((await res.json()) as { error: string }).error, /no email address/);
   assert.equal(calls.length, 0);
@@ -310,7 +324,7 @@ for (const [status, error] of [
 ] as const) {
   test(`Reacharound's ${status} passes through with its message`, async () => {
     const { handler } = setup({ respond: () => Response.json({ error }, { status }) });
-    const res = await handler(postJson(`${BASE}/threads/t1/reply`, { text: "hi", replyAttemptId: "x" }));
+    const res = await handler(postJson(`${BASE}/threads/${T1}/reply`, { text: "hi", replyAttemptId: "x" }));
     assert.equal(res.status, status);
     assert.deepEqual(await res.json(), { error });
   });

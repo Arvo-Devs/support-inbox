@@ -34,7 +34,7 @@ Imports:
 ```ts
 import { createSupportInbox } from "@arvo/support-inbox";          // server
 import { SupportInboxPage, SupportUnreadBadge } from "@arvo/support-inbox/client";
-import { supportThreads, supportMessages } from "@arvo/support-inbox/schema";
+import { supportThreads, supportMessages } from "@arvo/support-inbox/schema"; // self-hosted mode only
 ```
 
 ## Requirements
@@ -126,7 +126,7 @@ How it behaves:
 
 ## Self-hosted mode
 
-The app stores and sends its own mail. Everything below this heading applies to self-hosted installs only.
+The app stores and sends its own mail. Everything in this section, down to *Behavior notes*, applies to self-hosted installs only.
 
 ### Mounting
 
