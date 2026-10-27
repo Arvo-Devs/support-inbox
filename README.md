@@ -120,9 +120,10 @@ How it behaves:
 
 - **`authorize` stays the auth boundary**, exactly as in self-hosted mode (null = bare 404). The returned actor **must have an `email`**: Reacharound records it — and `name`, when given — as the sender of every reply and conversation, and shows "via <your brand>" beside it in its own Inbox. The actor is always taken from `authorize`, never from the browser's request.
 - **The key never leaves your server.** The browser only talks to your app; your app's routes call Reacharound with the key. Nothing from the browser's request (cookies, headers) is forwarded, and only the list route's own query parameters are.
-- **Errors arrive as `{ error }` the screens can show.** Reacharound's own answers pass through (404, 409, 410, 422, 502 …). A refused key (revoked or rotated in Reacharound) becomes a 502 telling the admin to check the key; Reacharound unreachable, too slow (15 s, `timeoutMs`) or answering with something that is not JSON is a 502 too.
+- **Errors arrive as `{ error }` the screens can show.** Reacharound's own answers pass through (400, 404, 409, 410, 422, 429, 502 …). A refused key (revoked or rotated in Reacharound) becomes a 502 telling the admin to check the key; Reacharound unreachable, too slow (15 s, `timeoutMs`) or answering with something that is not JSON is a 502 too.
 - **Revoking or rotating the key in Reacharound cuts the app off immediately**; update `REACHAROUND_INBOX_KEY` after a rotation.
 - **Every Reacharound-side rule applies**: replies go from the address the customer wrote to, conversations the app starts go from *App sends from*, and only this brand's mail is ever reachable with this key.
+- **Starting a conversation (`POST /threads`) is limited**: `to` must be one address (`jane@example.com` or `Jane <jane@example.com>`; a list is a 400), and a brand can start at most 100 conversations in any 24 hours, after which Reacharound answers 429 until the window rolls on. Replies to existing conversations are not limited. Self-hosted mode takes one address too, but has no daily limit.
 
 ## Self-hosted mode
 

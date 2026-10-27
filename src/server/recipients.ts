@@ -31,6 +31,25 @@ export function parseAddress(value: string | null | undefined): ParsedAddress | 
   return { name, address: address.toLowerCase() };
 }
 
+// One mailbox: no whitespace, commas, semicolons, brackets or quotes, and a
+// dotted domain whose labels are non-empty.
+const SINGLE_MAILBOX = /^[^\s@,;:<>()[\]"\\]+@(?:[^\s@,;:<>()[\]"\\.]+\.)+[^\s@,;:<>()[\]"\\.]+$/;
+
+/**
+ * The one recipient of a conversation an admin starts (compose). parseAddress
+ * is lenient on purpose — it reads inbound headers — so it takes
+ * `a@x.com, b@y.com` as a single "address". Compose must reach exactly the one
+ * person typed, so this also requires the address part to be one plain
+ * mailbox and refuses a display name hiding a second `<…>`. Same rule as
+ * Reacharound's compose (PRO-5000), so both modes refuse the same input.
+ */
+export function parseRecipient(value: string): ParsedAddress | null {
+  const parsed = parseAddress(value);
+  if (!parsed || !SINGLE_MAILBOX.test(parsed.address)) return null;
+  if (parsed.name && /[<>]/.test(parsed.name)) return null;
+  return parsed;
+}
+
 // Splits on commas outside double quotes so `"Doe, Jane" <j@x.com>, a@y.com`
 // yields two entries, not three.
 function splitAddressString(value: string): string[] {

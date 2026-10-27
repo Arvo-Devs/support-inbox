@@ -1,7 +1,43 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { addressList, isLoopMail, matchInboundAddress, parseAddress } from "./recipients";
+import {
+  addressList,
+  isLoopMail,
+  matchInboundAddress,
+  parseAddress,
+  parseRecipient,
+} from "./recipients";
+
+test("parseRecipient takes one address, bare or display-named", () => {
+  assert.deepEqual(parseRecipient("jane@Example.com"), { name: null, address: "jane@example.com" });
+  assert.deepEqual(parseRecipient("Jane Doe <jane@example.com>"), {
+    name: "Jane Doe",
+    address: "jane@example.com",
+  });
+  assert.deepEqual(parseRecipient('"Doe, Jane" <jane@example.co.uk>'), {
+    name: "Doe, Jane",
+    address: "jane@example.co.uk",
+  });
+});
+
+test("parseRecipient refuses lists and malformed addresses that parseAddress lets through", () => {
+  for (const value of [
+    "a@x.com, b@y.com",
+    "a@x.com; b@y.com",
+    "a@x.com b@y.com",
+    "x <a@x.com> <b@y.com>",
+    "a@@x.com",
+    "a@x",
+    "a@x..com",
+    "@x.com",
+    "",
+  ]) {
+    assert.equal(parseRecipient(value), null, value);
+  }
+  // The lenient parser really does accept the list — the reason compose needs its own.
+  assert.notEqual(parseAddress("a@x.com, b@y.com"), null);
+});
 
 test("parseAddress handles the display-name form", () => {
   assert.deepEqual(parseAddress("Jane Doe <jane@Example.com>"), {
