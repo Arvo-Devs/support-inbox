@@ -57,7 +57,23 @@ type Upstream = {
   /** Path under `{url}/api/inbox/{projectId}`, already encoded. */
   path: string;
   body?: Record<string, unknown>;
+  /**
+   * The list and the unread count can only 404 when the project itself is
+   * wrong (unknown or archived id, or its inbox switched off): that is this
+   * app's configuration, like a refused key. A thread or attachment 404 is a
+   * real "not found" and passes through.
+   */
+  notFoundIsConfig?: boolean;
 };
+
+/**
+ * The path as logged: without its query, which carries the admin's search
+ * text (`q`) — customer names and email addresses, more often than not.
+ */
+function loggedPath(path: string): string {
+  const q = path.indexOf("?");
+  return q === -1 ? path : path.slice(0, q);
+}
 
 export function createReacharoundRouter(
   config: ResolvedReacharoundConfig,
@@ -66,11 +82,15 @@ export function createReacharoundRouter(
    * One call to Reacharound, answered as the screens expect. Reacharound's own
    * statuses and `{ error }` bodies pass through unchanged (404, 409, 410,
    * 422, 502 …) — they already describe the problem in the screens' terms.
-   * Three cases do not, and become a 502 with a message for the admin:
+   * Four cases do not, and become a 502 with a message for the admin:
    *  - 401: the inbox key was refused (revoked, rotated, or never set). That is
    *    this app's configuration, not the admin's request, and passing a 401 to
    *    a signed-in admin would read as "you are logged out".
-   *  - Reacharound unreachable or too slow (network error / timeout).
+   *  - 404 on the list or the count: the project id is wrong (see
+   *    `notFoundIsConfig`), which a bare "Not found" would hide.
+   *  - Reacharound unreachable or too slow (network error / timeout), or
+   *    answering with a redirect: the key is never re-sent to wherever a
+   *    redirect points, so a moved or mistyped URL fails here instead.
    *  - an answer that is not JSON (an HTML error page from a proxy, say).
    */
   async function forward(upstream: Upstream): Promise<Response> {
@@ -86,11 +106,12 @@ export function createReacharoundRouter(
         body: upstream.body ? JSON.stringify(upstream.body) : undefined,
         signal: AbortSignal.timeout(config.timeoutMs),
         cache: "no-store",
+        redirect: "error",
       });
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       console.error("[support-inbox] Reacharound request failed", {
-        path: upstream.path,
+        path: loggedPath(upstream.path),
         timedOut,
         error,
       });
@@ -105,11 +126,26 @@ export function createReacharoundRouter(
     }
 
     if (res.status === 401) {
-      console.error("[support-inbox] Reacharound refused the inbox key", { path: upstream.path });
+      console.error("[support-inbox] Reacharound refused the inbox key", {
+        path: loggedPath(upstream.path),
+      });
       return Response.json(
         {
           error:
             "The support inbox isn't connected: Reacharound refused this app's inbox key. Ask an admin to check the key.",
+        },
+        { status: 502 },
+      );
+    }
+
+    if (res.status === 404 && upstream.notFoundIsConfig) {
+      console.error("[support-inbox] Reacharound does not know this project, or its inbox is off", {
+        path: loggedPath(upstream.path),
+      });
+      return Response.json(
+        {
+          error:
+            "The support inbox isn't connected: Reacharound doesn't recognise this app's project, or its inbox is switched off. Ask an admin to check the project id.",
         },
         { status: 502 },
       );
@@ -120,7 +156,7 @@ export function createReacharoundRouter(
       payload = await res.json();
     } catch {
       console.error("[support-inbox] Reacharound answered with non-JSON", {
-        path: upstream.path,
+        path: loggedPath(upstream.path),
         status: res.status,
       });
       return Response.json(
@@ -159,7 +195,8 @@ export function createReacharoundRouter(
   }
 
   return async (req: Request): Promise<Response> => {
-    let path = req.url;
+    // Pathname only: the query can carry the admin's search text.
+    let path = new URL(req.url).pathname;
     try {
       const actor = await config.authorize(req);
       if (!actor) return notFound();
@@ -206,7 +243,11 @@ export function createReacharoundRouter(
             if (value !== null) query.set(name, value);
           }
           const qs = query.toString();
-          return await forward({ method: "GET", path: `/threads${qs ? `?${qs}` : ""}` });
+          return await forward({
+            method: "GET",
+            path: `/threads${qs ? `?${qs}` : ""}`,
+            notFoundIsConfig: true,
+          });
         }
         if (method === "POST") {
           const payload = write();
@@ -218,7 +259,13 @@ export function createReacharoundRouter(
 
       // unread-count must match before the :id route.
       if (segments.length === 2 && segments[0] === "threads" && segments[1] === "unread-count") {
-        if (method === "GET") return await forward({ method: "GET", path: "/threads/unread-count" });
+        if (method === "GET") {
+          return await forward({
+            method: "GET",
+            path: "/threads/unread-count",
+            notFoundIsConfig: true,
+          });
+        }
         return methodNotAllowed();
       }
 

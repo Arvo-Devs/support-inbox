@@ -19,7 +19,7 @@ const UPSTREAM = `${RA}/api/inbox/${PROJECT}`;
 const T1 = "9c19d2f4-494f-4eb6-b923-7d3475753fda";
 const A1 = "06477b85-cac9-4346-8158-c35cb9968ecd";
 
-type Call = { url: string; method: string; headers: Headers; body: unknown };
+type Call = { url: string; method: string; headers: Headers; body: unknown; redirect?: RequestRedirect };
 
 function setup(
   options: {
@@ -34,6 +34,7 @@ function setup(
       method: init?.method ?? "GET",
       headers: new Headers(init?.headers),
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      redirect: init?.redirect,
     };
     calls.push(call);
     const answer = Promise.resolve(options.respond ? options.respond(call) : Response.json({ ok: true }));
@@ -374,6 +375,67 @@ test("a timeout from fetch (TimeoutError) says Reacharound took too long", async
   assert.match(((await res.json()) as { error: string }).error, /took too long/);
 });
 
+test("every call refuses redirects, so the key is never re-sent elsewhere", async () => {
+  const { handler, calls } = setup({ respond: () => Response.json({ threads: [], nextCursor: null }) });
+  await handler(new Request(`${BASE}/threads`));
+  await handler(postJson(`${BASE}/threads/${T1}/reply`, { text: "hi", replyAttemptId: "x" }));
+  assert.equal(calls.length, 2);
+  for (const call of calls) assert.equal(call.redirect, "error");
+});
+
+test("a redirect from Reacharound (fetch throws on redirect: error) is a 502", async () => {
+  const { handler } = setup({
+    respond: () => {
+      throw new TypeError("fetch failed: unexpected redirect");
+    },
+  });
+  const res = await handler(new Request(`${BASE}/threads`));
+  assert.equal(res.status, 502);
+  assert.match(((await res.json()) as { error: string }).error, /Could not reach Reacharound/);
+});
+
+for (const route of ["threads", "threads/unread-count"]) {
+  test(`a 404 on GET /${route} means a wrong project: a 502 that says so`, async () => {
+    const { handler } = setup({ respond: () => Response.json({ error: "Not found" }, { status: 404 }) });
+    const res = await handler(new Request(`${BASE}/${route}`));
+    assert.equal(res.status, 502);
+    assert.match(((await res.json()) as { error: string }).error, /doesn't recognise this app's project/);
+  });
+}
+
+test("a 404 on one thread is a real not-found and passes through", async () => {
+  const { handler } = setup({
+    respond: () => Response.json({ error: "Conversation not found." }, { status: 404 }),
+  });
+  const res = await handler(new Request(`${BASE}/threads/${T1}`));
+  assert.equal(res.status, 404);
+  assert.deepEqual(await res.json(), { error: "Conversation not found." });
+});
+
+test("failure logs never carry the search text", async () => {
+  const logged: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    const { handler } = setup({
+      respond: () => {
+        throw new TypeError("fetch failed");
+      },
+    });
+    await handler(new Request(`${BASE}/threads?q=customer%40example.com`));
+    const { handler: notFound } = setup({
+      respond: () => Response.json({ error: "Not found" }, { status: 404 }),
+    });
+    await notFound(new Request(`${BASE}/threads?q=customer%40example.com`));
+  } finally {
+    console.error = original;
+  }
+  assert.equal(logged.length, 2);
+  const text = JSON.stringify(logged, (_k, v: unknown) => (v instanceof Error ? v.message : v));
+  assert.doesNotMatch(text, /customer/);
+  assert.match(text, /\/threads/);
+});
+
 test("a non-JSON answer (a proxy's HTML error page) is a 502", async () => {
   const { handler } = setup({
     respond: () => new Response("<html>Bad gateway</html>", { status: 503, headers: { "content-type": "text/html" } }),
@@ -384,6 +446,16 @@ test("a non-JSON answer (a proxy's HTML error page) is a 502", async () => {
 });
 
 // --- configuration ----------------------------------------------------------
+
+test("config: plain http is allowed only to this machine", () => {
+  for (const url of ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"]) {
+    const c = normalizeReacharoundConfig({
+      reacharound: { url, projectId: PROJECT, key: KEY },
+      authorize: async () => null,
+    });
+    assert.ok(c.inboxApiBase.startsWith(url));
+  }
+});
 
 test("config: builds the inbox API base from url + projectId, trailing slash or not", () => {
   const a = normalizeReacharoundConfig({
@@ -399,8 +471,9 @@ test("config: a bad url, project id or empty key fails at creation", () => {
   const make = (reacharound: SupportInboxReacharoundConfig["reacharound"]) => () =>
     normalizeReacharoundConfig({ reacharound, authorize: async () => null });
   assert.throws(make({ url: "not a url", projectId: PROJECT, key: KEY }), /not a URL/);
-  assert.throws(make({ url: "ftp://ra.example", projectId: PROJECT, key: KEY }), /http\(s\)/);
+  assert.throws(make({ url: "ftp://ra.example", projectId: PROJECT, key: KEY }), /must be https/);
   assert.throws(make({ url: RA, projectId: "bfl", key: KEY }), /not a uuid/);
+  assert.throws(make({ url: "http://ra.example", projectId: PROJECT, key: KEY }), /must be https/);
   assert.throws(make({ url: RA, projectId: PROJECT, key: "  " }), /key is empty/);
 });
 
