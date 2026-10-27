@@ -1,6 +1,6 @@
 import type { ResolvedSupportInboxConfig, SupportInboxActor } from "../../config";
 import type { ComposeResponse, ReplyResponse, ThreadResponse } from "../../shared/types";
-import { parseAddress } from "../recipients";
+import { parseAddress, parseRecipient } from "../recipients";
 import type { RouterDeps } from "../router";
 import { toMessageDto, toThreadSummary } from "../serialize";
 import { makeSnippet } from "../snippet";
@@ -149,9 +149,12 @@ export async function compose(
   actor: SupportInboxActor,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const recipient = typeof body.to === "string" ? parseAddress(body.to) : null;
+  const recipient = typeof body.to === "string" ? parseRecipient(body.to) : null;
   if (!recipient) {
-    return Response.json({ error: "A valid recipient address is required" }, { status: 400 });
+    return Response.json(
+      { error: "Must be one email address, like jane@example.com" },
+      { status: 400 },
+    );
   }
   // Composing to our own address would loop back through inbound ingest.
   if (recipient.address === config.fromAddress) {

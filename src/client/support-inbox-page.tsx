@@ -18,17 +18,25 @@ const statusTabs: Array<{ value: ThreadStatus; label: string }> = [
   { value: "spam", label: "Spam" },
 ];
 
-export type SupportInboxPageProps = { basePath?: string };
+export type SupportInboxPageProps = {
+  basePath?: string;
+  /**
+   * Show the Sync button. Default true (self-hosted mode, where Sync pulls
+   * missed mail from Resend). Pass `false` in Reacharound mode: Reacharound
+   * catches up on its own, so the button would only ever say "up to date".
+   */
+  sync?: boolean;
+};
 
-export function SupportInboxPage({ basePath }: SupportInboxPageProps) {
+export function SupportInboxPage({ basePath, sync = true }: SupportInboxPageProps) {
   return (
     <SupportInboxProvider basePath={basePath}>
-      <SupportInboxPageInner />
+      <SupportInboxPageInner sync={sync} />
     </SupportInboxProvider>
   );
 }
 
-function SupportInboxPageInner() {
+function SupportInboxPageInner({ sync }: { sync: boolean }) {
   const basePath = useSupportInboxBasePath();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<ThreadStatus>("open");
@@ -112,20 +120,22 @@ function SupportInboxPageInner() {
               ))}
             </div>
             <div className="flex-1" />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Sync inbox"
-              title="Sync inbox"
-              disabled={syncMutation.isPending}
-              onClick={() => syncMutation.mutate()}
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", syncMutation.isPending && "animate-spin")}
-                aria-hidden="true"
-              />
-            </Button>
+            {sync ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Sync inbox"
+                title="Sync inbox"
+                disabled={syncMutation.isPending}
+                onClick={() => syncMutation.mutate()}
+              >
+                <RefreshCw
+                  className={cn("h-4 w-4", syncMutation.isPending && "animate-spin")}
+                  aria-hidden="true"
+                />
+              </Button>
+            ) : null}
           </div>
           <div className="relative">
             <Search

@@ -353,10 +353,17 @@ test("POST /threads composes a new thread and is idempotent", async () => {
 });
 
 test("POST /threads validates recipient, subject, and text", async () => {
-  const { handler } = setup();
+  const { handler, resendApi } = setup();
   const base = { to: "x@example.com", subject: "Hi", text: "Hello", replyAttemptId: randomUUID() };
 
   assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, to: "not-an-email" }))).status, 400);
+  // One recipient only: a list would otherwise reach Resend as one "address" and mail everyone in it.
+  for (const to of ["a@x.com, b@y.com", "a@x.com; b@y.com", "x <a@x.com> <b@y.com>"]) {
+    const res = await handler(postJson(`${BASE}/threads`, { ...base, to }));
+    assert.equal(res.status, 400, to);
+    assert.deepEqual(await res.json(), { error: "Must be one email address, like jane@example.com" });
+  }
+  assert.equal(resendApi.calls.send.length, 0);
   assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, subject: "  " }))).status, 400);
   assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, text: "" }))).status, 400);
   assert.equal((await handler(postJson(`${BASE}/threads`, { ...base, replyAttemptId: "nope" }))).status, 400);

@@ -114,9 +114,7 @@ export function normalizeConfig(config: SupportInboxConfig): ResolvedSupportInbo
     if (key && value) aliasMap[key] = value;
   }
 
-  let basePath = (config.basePath ?? "/api/admin/support").trim();
-  if (!basePath.startsWith("/")) basePath = `/${basePath}`;
-  basePath = basePath.replace(/\/+$/, "");
+  const basePath = normalizeBasePath(config.basePath);
 
   return {
     db: config.db,
@@ -131,5 +129,107 @@ export function normalizeConfig(config: SupportInboxConfig): ResolvedSupportInbo
     authorize: config.authorize,
     lookupCustomer: config.lookupCustomer ?? null,
     basePath,
+  };
+}
+
+/** Mount point of the route handlers: leading slash, no trailing slash. */
+export function normalizeBasePath(value: string | undefined): string {
+  let basePath = (value ?? "/api/admin/support").trim();
+  if (!basePath.startsWith("/")) basePath = `/${basePath}`;
+  return basePath.replace(/\/+$/, "");
+}
+
+/**
+ * The fetch the Reacharound router calls. A plain function type rather than
+ * `typeof fetch`: runtimes add extra properties to their global fetch (Bun's
+ * types add `preconnect`), so `typeof fetch` would reject an ordinary
+ * `(input, init) => fetch(input, init)` passed by a host on that runtime.
+ */
+export type SupportInboxFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Reacharound mode (PRO-5000): the app keeps the package's routes and screens,
+ * but holds no support data. Reacharound — the hub that receives every
+ * project's support mail — is the store, and each route forwards to its inbox
+ * API (`/api/inbox/{projectId}/…`) with this project's inbox key and the
+ * acting admin. No `db`, no Resend key, no webhook: Reacharound receives,
+ * threads and sends; the app is a window onto it, kept in step with the hub's
+ * own Inbox by construction.
+ */
+export type SupportInboxReacharoundConfig = {
+  reacharound: {
+    /** Reacharound's base URL, e.g. `https://resend-analytics-hub.fly.dev`. */
+    url: string;
+    /** This app's project (brand) id in Reacharound. */
+    projectId: string;
+    /**
+     * The project's inbox key (`rik_…`, generated on the brand card). It can
+     * SEND mail as this brand: server-only, never in client code or a
+     * `NEXT_PUBLIC_` variable. The browser only ever talks to this app.
+     */
+    key: string;
+  };
+  /**
+   * Returns the acting admin or null (null = bare 404, as in self-hosted mode).
+   * In this mode the actor MUST carry an `email`: Reacharound records it as
+   * the sender of every reply and requires it on every write.
+   */
+  authorize: (req: Request) => Promise<SupportInboxActor | null>;
+  /** Optional customer lookup rendered in the thread detail view. */
+  lookupCustomer?: (email: string) => Promise<SupportInboxCustomerLink | null>;
+  /** Mount point of the route handlers. Default: /api/admin/support */
+  basePath?: string;
+  /** Per-request timeout for calls to Reacharound. Default: 15000 ms. */
+  timeoutMs?: number;
+  /** Test seam: the fetch used to call Reacharound. Default: global fetch. */
+  fetch?: SupportInboxFetch;
+};
+
+export type ResolvedReacharoundConfig = {
+  /** `{url}/api/inbox/{projectId}`, no trailing slash. */
+  inboxApiBase: string;
+  key: string;
+  authorize: (req: Request) => Promise<SupportInboxActor | null>;
+  lookupCustomer: ((email: string) => Promise<SupportInboxCustomerLink | null>) | null;
+  basePath: string;
+  timeoutMs: number;
+  fetch: SupportInboxFetch;
+};
+
+/**
+ * Validates at creation, where the misconfiguration is, rather than failing
+ * every request: a malformed URL, a missing project id or a missing key would
+ * otherwise surface as an opaque 502 on the first admin page load.
+ */
+export function normalizeReacharoundConfig(
+  config: SupportInboxReacharoundConfig,
+): ResolvedReacharoundConfig {
+  const { url, projectId, key } = config.reacharound;
+  let base: URL;
+  try {
+    base = new URL(url.trim());
+  } catch {
+    throw new Error(`[support-inbox] reacharound.url is not a URL: ${JSON.stringify(url)}`);
+  }
+  if (base.protocol !== "https:" && base.protocol !== "http:") {
+    throw new Error(`[support-inbox] reacharound.url must be http(s): ${JSON.stringify(url)}`);
+  }
+  const id = projectId.trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error(`[support-inbox] reacharound.projectId is not a uuid: ${JSON.stringify(projectId)}`);
+  }
+  const trimmedKey = key.trim();
+  if (!trimmedKey) {
+    throw new Error("[support-inbox] reacharound.key is empty — set the project's inbox key");
+  }
+  const origin = base.toString().replace(/\/+$/, "");
+  return {
+    inboxApiBase: `${origin}/api/inbox/${encodeURIComponent(id)}`,
+    key: trimmedKey,
+    authorize: config.authorize,
+    lookupCustomer: config.lookupCustomer ?? null,
+    basePath: normalizeBasePath(config.basePath),
+    timeoutMs: config.timeoutMs ?? 15_000,
+    fetch: config.fetch ?? globalThis.fetch.bind(globalThis),
   };
 }
