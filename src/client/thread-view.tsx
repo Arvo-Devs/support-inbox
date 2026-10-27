@@ -60,9 +60,10 @@ export function ThreadView({ threadId }: ThreadViewProps) {
           ...previous,
           thread: {
             ...previous.thread,
+            // Unread is left alone: the self-hosted server clears it on
+            // close/spam, Reacharound keeps the two flags apart. The refetch
+            // on settle shows whichever the server did.
             status,
-            // Closing/spamming clears unread server-side; mirror it optimistically.
-            unread: status === "open" ? previous.thread.unread : false,
           },
         });
       }
@@ -205,11 +206,7 @@ export function ThreadView({ threadId }: ThreadViewProps) {
       </div>
 
       {thread.status !== "spam" ? (
-        <ReplyBox
-          threadId={thread.id}
-          customerEmail={thread.customerEmail}
-          onSent={handleSent}
-        />
+        <ReplyBox threadId={thread.id} onSent={handleSent} />
       ) : null}
 
       <ConfirmDialog

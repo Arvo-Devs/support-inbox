@@ -39,6 +39,7 @@ import { supportThreads, supportMessages } from "@arvo/support-inbox/schema"; //
 
 ## Requirements
 
+- **Node 24 or newer** (`engines`), the Arvo framework's version and what CI runs. Node 22 cancels part of the test suite.
 - **Next.js (App Router) + React.** Route handlers are plain `(Request) => Response`, so other frameworks can mount them too; the client components need React 19 and @tanstack/react-query v5.
 - **Self-hosted mode only:** Postgres + drizzle-orm (the host passes a drizzle handle with a working `.transaction`; the package never opens its own connection) and a full-access Resend API key (sending-only keys cannot read inbound mail). Reacharound mode needs neither.
 - **Tailwind CSS v4** for the UI. Add a source line so Tailwind sees the package's class names:
@@ -102,7 +103,7 @@ export function getSupportInbox() {
 }
 ```
 
-A missing or malformed `url`, `projectId` or `key` throws on the first call, so a misconfigured deploy fails loudly instead of showing an empty inbox.
+A missing or malformed `url`, `projectId` or `key` throws on the first call, so a misconfigured deploy fails loudly instead of showing an empty inbox. The `url` must be `https://` (plain `http://` only for localhost): the key rides in every request.
 
 **2. Admin API route** (default basePath `/api/admin/support`) — the same file as self-hosted mode:
 
@@ -120,7 +121,7 @@ How it behaves:
 
 - **`authorize` stays the auth boundary**, exactly as in self-hosted mode (null = bare 404). The returned actor **must have an `email`**: Reacharound records it — and `name`, when given — as the sender of every reply and conversation, and shows "via <your brand>" beside it in its own Inbox. The actor is always taken from `authorize`, never from the browser's request.
 - **The key never leaves your server.** The browser only talks to your app; your app's routes call Reacharound with the key. Nothing from the browser's request (cookies, headers) is forwarded, and only the list route's own query parameters are.
-- **Errors arrive as `{ error }` the screens can show.** Reacharound's own answers pass through (400, 404, 409, 410, 422, 429, 502 …). A refused key (revoked or rotated in Reacharound) becomes a 502 telling the admin to check the key; Reacharound unreachable, too slow (15 s, `timeoutMs`) or answering with something that is not JSON is a 502 too.
+- **Errors arrive as `{ error }` the screens can show.** Reacharound's own answers pass through (400, 404, 409, 410, 422, 429, 502 …). A refused key (revoked or rotated in Reacharound) becomes a 502 telling the admin to check the key, and a 404 on the conversation list or unread count (a wrong or archived project id, or its inbox switched off) a 502 telling them to check the project id; a 404 on one conversation stays a 404. Reacharound unreachable, too slow (15 s, `timeoutMs`), answering with a redirect (never followed, so the key is never re-sent elsewhere) or with something that is not JSON is a 502 too. Logs name the route, never the search text.
 - **Revoking or rotating the key in Reacharound cuts the app off immediately**; update `REACHAROUND_INBOX_KEY` after a rotation.
 - **Every Reacharound-side rule applies**: replies go from the address the customer wrote to, conversations the app starts go from *App sends from*, and only this brand's mail is ever reachable with this key.
 - **Starting a conversation (`POST /threads`) is limited**: `to` must be one address (`jane@example.com` or `Jane <jane@example.com>`; a list is a 400), and a brand can start at most 100 conversations in any 24 hours, after which Reacharound answers 429 until the window rolls on. Replies to existing conversations are not limited. Self-hosted mode takes one address too, but has no daily limit.
@@ -234,6 +235,8 @@ There is no feature flag: the inbox is admin-only from day one (`authorize` gate
 These hold in both modes unless marked; in Reacharound mode Reacharound is the store, so "the app database" below means Reacharound's.
 
 - **Replies are plain-text and sender-only.** CC recipients are displayed, not auto-included (reply-all is future work).
+- **A retried reply is never sent twice.** The reply's attempt id and the unsent draft are kept per conversation for the browser tab's session, so after a lost answer a reload (or switching conversations) and sending again replays the same id, which the server dedupes.
+- **Closing or marking spam:** self-hosted clears unread; Reacharound keeps the two flags apart (as its own Inbox does). The screen shows whichever the server did.
 - **Attachments are metadata + on-demand signed links**, expiry driven by the API's `expires_at`. Expired links render as "no longer available."
 - **Admin replies do not appear in your mail provider's Sent folder.** The app database is authoritative for outbound support mail.
 - **Replies deliberately skip suppression lists** (an explicit human reply outranks an automated suppression), and hard bounces will feed whatever bounce webhook the host already runs.
@@ -262,3 +265,5 @@ pnpm install          # no lifecycle scripts run
 pnpm test             # node:test via tsx
 pnpm typecheck        # tsc --noEmit
 ```
+
+CI (`.github/workflows/ci.yml`) runs both on Node 24 for every PR and every push to `main`.

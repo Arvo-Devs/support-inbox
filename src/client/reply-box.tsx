@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 
@@ -8,31 +8,38 @@ import { Button, Textarea, cn, toast } from "../ui/ui-deps";
 import type { MessageDto } from "../shared/types";
 import { getApiErrorMessage, postReply } from "./api";
 import { useSupportInboxBasePath } from "./context";
+import {
+  clearReplyAttempt,
+  readReplyDraft,
+  resolveReplyAttemptId,
+  writeReplyDraft,
+} from "./reply-attempt";
 
 const MAX_LENGTH = 50_000;
 const COUNTER_THRESHOLD = 40_000;
 
 export type ReplyBoxProps = {
   threadId: string;
-  customerEmail: string;
   onSent: (message: MessageDto) => void;
 };
 
-export function ReplyBox({ threadId, customerEmail, onSent }: ReplyBoxProps) {
+export function ReplyBox({ threadId, onSent }: ReplyBoxProps) {
   const basePath = useSupportInboxBasePath();
-  const [text, setText] = useState("");
-
-  // One attempt id per compose attempt. It is KEPT across failed sends so a
-  // retry replays the same id (the server dedupes), and regenerated only
-  // after a successful send.
-  const attemptIdRef = useRef<string>(crypto.randomUUID());
+  // The draft and the attempt id live in sessionStorage per thread
+  // (`reply-attempt.ts`): a reload or a thread switch keeps both, so a retry
+  // after a lost answer replays the same id and the server dedupes it.
+  const [text, setTextState] = useState(() => readReplyDraft(threadId));
+  const setText = (next: string) => {
+    setTextState(next);
+    writeReplyDraft(threadId, next);
+  };
 
   const replyMutation = useMutation({
     mutationFn: (body: { text: string; replyAttemptId: string }) =>
       postReply(basePath, threadId, body),
     onSuccess: (response) => {
       setText("");
-      attemptIdRef.current = crypto.randomUUID();
+      clearReplyAttempt(threadId);
       onSent(response.message);
       toast.success("Reply sent");
     },
@@ -46,7 +53,7 @@ export function ReplyBox({ threadId, customerEmail, onSent }: ReplyBoxProps) {
 
   function submit() {
     if (!canSubmit) return;
-    replyMutation.mutate({ text, replyAttemptId: attemptIdRef.current });
+    replyMutation.mutate({ text, replyAttemptId: resolveReplyAttemptId(threadId, text) });
   }
 
   return (
@@ -66,8 +73,10 @@ export function ReplyBox({ threadId, customerEmail, onSent }: ReplyBoxProps) {
             submit();
           }
         }}
-        placeholder={`Reply to ${customerEmail}… (plain text)`}
-        aria-label={`Reply to ${customerEmail}`}
+        // No address here: the reply goes to the sender's Reply-To when the
+        // last message set one, which the thread data does not carry.
+        placeholder="Write a reply… (plain text)"
+        aria-label="Reply"
         className="min-h-24"
         disabled={replyMutation.isPending}
       />

@@ -158,7 +158,7 @@ export type SupportInboxFetch = (input: RequestInfo | URL, init?: RequestInit) =
  */
 export type SupportInboxReacharoundConfig = {
   reacharound: {
-    /** Reacharound's base URL, e.g. `https://resend-analytics-hub.fly.dev`. */
+    /** Reacharound's base URL, e.g. `https://resend-analytics-hub.fly.dev`. https only (http for localhost). */
     url: string;
     /** This app's project (brand) id in Reacharound. */
     projectId: string;
@@ -211,8 +211,13 @@ export function normalizeReacharoundConfig(
   } catch {
     throw new Error(`[support-inbox] reacharound.url is not a URL: ${JSON.stringify(url)}`);
   }
-  if (base.protocol !== "https:" && base.protocol !== "http:") {
-    throw new Error(`[support-inbox] reacharound.url must be http(s): ${JSON.stringify(url)}`);
+  // The inbox key rides in every request's Authorization header, so plain
+  // http is allowed only to this machine (a Reacharound running locally).
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
+  if (base.protocol !== "https:" && !(base.protocol === "http:" && local)) {
+    throw new Error(
+      `[support-inbox] reacharound.url must be https (http only for localhost): ${JSON.stringify(url)}`,
+    );
   }
   const id = projectId.trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
