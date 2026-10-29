@@ -116,16 +116,22 @@ export function createReacharoundRouter(
   config: ResolvedReacharoundConfig,
 ): (req: Request) => Promise<Response> {
   /**
-   * One request to Reacharound with `key`. Redirects are refused, so the key
-   * is never re-sent to wherever one points, and nothing is cached. Throws on
-   * a network error or the timeout; the callers put that into words.
+   * One request to Reacharound with `key`. Redirects are never followed, so
+   * the key is never re-sent to wherever one points, and nothing is cached.
+   * Throws on a network error, the timeout or a redirect; the callers put
+   * that into words.
+   *
+   * `redirect: "manual"` plus the status check, not `redirect: "error"`:
+   * Cloudflare Workers throw on "error" before sending anything, so every
+   * call from an app hosted there failed as "couldn't reach Reacharound"
+   * (OFManager, 2026-10-29).
    */
-  function call(
+  async function call(
     path: string,
     key: string,
     init: { method: "GET" | "POST"; body?: Record<string, unknown> },
   ): Promise<Response> {
-    return config.fetch(`${config.inboxApiBase}${path}`, {
+    const res = await config.fetch(`${config.inboxApiBase}${path}`, {
       method: init.method,
       headers: {
         authorization: `Bearer ${key}`,
@@ -135,8 +141,12 @@ export function createReacharoundRouter(
       body: init.body ? JSON.stringify(init.body) : undefined,
       signal: AbortSignal.timeout(config.timeoutMs),
       cache: "no-store",
-      redirect: "error",
+      redirect: "manual",
     });
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+      throw new TypeError(`Reacharound answered with a redirect (${res.status}), which is never followed`);
+    }
+    return res;
   }
 
   /** The saved key, or the 409 that sends the admin to Settings. */

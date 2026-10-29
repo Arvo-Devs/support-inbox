@@ -393,18 +393,39 @@ test("a timeout from fetch (TimeoutError) says Reacharound took too long", async
   assert.match(((await res.json()) as { error: string }).error, /took too long/);
 });
 
-test("every call refuses redirects, so the key is never re-sent elsewhere", async () => {
+test("no call follows redirects, so the key is never re-sent elsewhere", async () => {
   const { handler, calls } = setup({ respond: () => Response.json({ threads: [], nextCursor: null }) });
   await handler(new Request(`${BASE}/threads`));
   await handler(postJson(`${BASE}/threads/${T1}/reply`, { text: "hi", replyAttemptId: "x" }));
   assert.equal(calls.length, 2);
-  for (const call of calls) assert.equal(call.redirect, "error");
+  // "manual", never "error": Cloudflare Workers throw on "error" before sending.
+  for (const call of calls) assert.equal(call.redirect, "manual");
 });
 
-test("a redirect from Reacharound (fetch throws on redirect: error) is a 503", async () => {
+const redirectAway = () =>
+  new Response(null, { status: 302, headers: { location: "https://elsewhere.example/api/inbox/threads" } });
+
+test("a redirect from Reacharound is a 503, never passed on or followed", async () => {
+  const { handler, calls } = setup({ respond: redirectAway });
+  const res = await handler(new Request(`${BASE}/threads`));
+  assert.equal(res.status, 503);
+  assert.equal(res.headers.get("location"), null);
+  assert.match(((await res.json()) as { error: string }).error, /Could not reach Reacharound/);
+  assert.equal(calls.length, 1);
+});
+
+test("Settings won't save a key when Reacharound answers the check with a redirect", async () => {
+  const keyStore = memoryKeyStore();
+  const { handler } = setup({ respond: redirectAway, keyStore });
+  const res = await handler(postJson(`${BASE}/connection`, { key: "rik_abcdefghijklmnop1234" }));
+  assert.notEqual(res.status, 200);
+  assert.equal(await keyStore.read(), null);
+});
+
+test("a network error from fetch is still a 503", async () => {
   const { handler } = setup({
     respond: () => {
-      throw new TypeError("fetch failed: unexpected redirect");
+      throw new TypeError("fetch failed");
     },
   });
   const res = await handler(new Request(`${BASE}/threads`));
