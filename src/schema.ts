@@ -113,3 +113,17 @@ export const supportAttachments = pgTable(
   },
   (table) => [index("support_attachments_message_id_idx").on(table.messageId)],
 );
+
+/**
+ * Reacharound mode only: the brand's inbox key as the Email page's Settings
+ * saved it, encrypted by server/key-store.ts, plus its last four characters
+ * and who saved it. One row, id `reacharound`. DDL:
+ * migrations/0002_support_inbox_settings.sql.
+ */
+export const supportInboxSettings = pgTable("support_inbox_settings", {
+  id: text("id").primaryKey(),
+  reacharoundKeyEncrypted: text("reacharound_key_encrypted"),
+  reacharoundKeyHint: text("reacharound_key_hint"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+});

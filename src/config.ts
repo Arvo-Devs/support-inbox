@@ -1,5 +1,6 @@
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
+import type { ReacharoundKeyStore } from "./server/key-store";
 import { parseAddress } from "./server/recipients";
 
 /**
@@ -155,28 +156,41 @@ export type SupportInboxFetch = (input: RequestInfo | URL, init?: RequestInit) =
 export const REACHAROUND_URL = "https://reacharound.xyz";
 
 /**
+ * An inbox key as Reacharound makes them (`rik_` then base64url). Checked when
+ * Settings saves one, so the likely slips (a Resend key, a pasted `NAME=value`
+ * line, quotes, a space) are refused in words rather than sent to Reacharound.
+ */
+export function isInboxKey(value: string): boolean {
+  return /^rik_[A-Za-z0-9_-]{16,128}$/.test(value);
+}
+
+/**
  * Reacharound mode (PRO-5000): the app keeps the package's routes and screens,
- * but holds no support data. Reacharound — the shared hub for support
+ * but holds no support mail. Reacharound — the shared hub for support
  * mail — is the store, and each route forwards to its inbox
  * API (`/api/inbox/…`) with this brand's inbox key and the acting admin. The
- * key alone tells Reacharound which brand is asking, so it is the app's one
- * setting. No `db`, no Resend key, no webhook: Reacharound receives, threads
- * and sends; the app is a window onto it, kept in step with the hub's own
- * Inbox by construction.
+ * key alone tells Reacharound which brand is asking. An admin pastes it on the
+ * Email page's Settings and the app keeps it, encrypted, in one small table
+ * (`keyStore`), so connecting needs no server setting and no redeploy
+ * (2026-10-29). No Resend key, no webhook: Reacharound receives, threads and
+ * sends; the app is a window onto it, kept in step with the hub's own Inbox
+ * by construction.
  */
 export type SupportInboxReacharoundConfig = {
   reacharound: {
     /**
-     * The brand's inbox key (`rik_…`), from Reacharound: Inbox › Connect an
-     * app › Get a key. It names the brand, so nothing else is needed. It can
-     * SEND mail as this brand: server-only, never in client code or a
-     * `NEXT_PUBLIC_` variable. The browser only ever talks to this app.
+     * Where the brand's inbox key (`rik_…`) is kept once an admin pastes it on
+     * the Email page's Settings: `drizzleKeyStore(db, { secret })`, in the
+     * app's own database, encrypted. The key can SEND mail as this brand, so
+     * it never reaches the browser; Settings shows its last four characters.
+     * `memoryKeyStore(key)` is for tests.
      */
-    key: string;
+    keyStore: ReacharoundKeyStore;
     /**
      * Leave it out. Defaults to `REACHAROUND_URL`, the one hub every
-     * Reacharound-mode app talks to; only for pointing a development copy at a Reacharound running on
-     * this machine. https only (http for localhost). Empty means the default.
+     * Reacharound-mode app talks to; only for pointing a development copy at a
+     * Reacharound running on this machine. https only (http for localhost).
+     * Empty means the default.
      */
     url?: string;
   };
@@ -199,7 +213,7 @@ export type SupportInboxReacharoundConfig = {
 export type ResolvedReacharoundConfig = {
   /** `{url}/api/inbox`, no trailing slash. */
   inboxApiBase: string;
-  key: string;
+  keyStore: ReacharoundKeyStore;
   authorize: (req: Request) => Promise<SupportInboxActor | null>;
   lookupCustomer: ((email: string) => Promise<SupportInboxCustomerLink | null>) | null;
   basePath: string;
@@ -209,14 +223,19 @@ export type ResolvedReacharoundConfig = {
 
 /**
  * Validates at creation, where the misconfiguration is, rather than failing
- * every request: a missing or wrong key, or a malformed URL, would otherwise
- * surface as an opaque 502 on the first admin page load. Errors never repeat
- * the key: it can send mail.
+ * every request: a malformed URL or a missing key store would otherwise
+ * surface on the first admin page load. The key itself is checked when
+ * Settings saves it (server/reacharound.ts).
  */
 export function normalizeReacharoundConfig(
   config: SupportInboxReacharoundConfig,
 ): ResolvedReacharoundConfig {
-  const { key } = config.reacharound;
+  const { keyStore } = config.reacharound;
+  if (!keyStore || typeof keyStore.read !== "function" || typeof keyStore.write !== "function") {
+    throw new Error(
+      "[support-inbox] reacharound.keyStore is missing: pass drizzleKeyStore(db, { secret }) so Settings can keep the inbox key",
+    );
+  }
   const url = config.reacharound.url?.trim() || REACHAROUND_URL;
   let base: URL;
   try {
@@ -232,19 +251,10 @@ export function normalizeReacharoundConfig(
       `[support-inbox] reacharound.url must be https (http only for localhost): ${JSON.stringify(url)}`,
     );
   }
-  const trimmedKey = key.trim();
-  if (!trimmedKey) {
-    throw new Error("[support-inbox] reacharound.key is empty — set the brand's inbox key (REACHAROUND_INBOX_KEY)");
-  }
-  // Catches the likely slips (a Resend key, a pasted `NAME=value` line, quotes)
-  // here rather than as "Reacharound refused this app's inbox key" later.
-  if (!trimmedKey.startsWith("rik_")) {
-    throw new Error("[support-inbox] reacharound.key isn't a Reacharound inbox key: those start with rik_");
-  }
   const origin = base.toString().replace(/\/+$/, "");
   return {
     inboxApiBase: `${origin}/api/inbox`,
-    key: trimmedKey,
+    keyStore,
     authorize: config.authorize,
     lookupCustomer: config.lookupCustomer ?? null,
     basePath: normalizeBasePath(config.basePath),

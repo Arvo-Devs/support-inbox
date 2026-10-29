@@ -7,7 +7,7 @@
 export { Badge } from "./vendor/badge";
 export { Button } from "./vendor/button";
 export { Card, CardContent } from "./vendor/card";
-export { ConfirmDialog } from "./vendor/dialog";
+export { ConfirmDialog, Dialog } from "./vendor/dialog";
 export { EmptyState } from "./vendor/empty-state";
 export { ErrorMessage } from "./vendor/error-message";
 export { Input } from "./vendor/input";

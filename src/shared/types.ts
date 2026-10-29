@@ -84,4 +84,18 @@ export type AttachmentUrlResponse = {
   expiresAt: string | null;
 };
 
-export type ApiError = { error: string };
+/**
+ * GET and POST `/connection` (Reacharound mode only): what the Email page's
+ * Settings shows. Never the key itself; its last four characters at most.
+ */
+export type ConnectionProblem = "no_key" | "key_unreadable" | "key_refused" | "unreachable";
+
+export type ConnectionResponse = {
+  /** A key is saved and Reacharound accepted it just now. */
+  connected: boolean;
+  problem: ConnectionProblem | null;
+  key: { hint: string; savedAt: string; savedBy: string | null } | null;
+};
+
+/** `code` says why Reacharound mode can't answer (server/reacharound.ts); absent otherwise. */
+export type ApiError = { error: string; code?: string };

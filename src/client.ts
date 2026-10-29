@@ -4,5 +4,7 @@
 
 export { SupportInboxPage } from "./client/support-inbox-page";
 export type { SupportInboxPageProps } from "./client/support-inbox-page";
+export { SupportInboxSettings } from "./client/settings";
+export type { SupportInboxSettingsProps } from "./client/settings";
 export { SupportUnreadBadge } from "./client/unread-badge";
 export type { SupportUnreadBadgeProps } from "./client/unread-badge";

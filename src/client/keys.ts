@@ -8,4 +8,5 @@ export const keys = {
     [...keys.all, "threads", filter] as const,
   thread: (id: string) => [...keys.all, "thread", id] as const,
   unreadCount: () => [...keys.all, "unread-count"] as const,
+  connection: () => [...keys.all, "connection"] as const,
 };

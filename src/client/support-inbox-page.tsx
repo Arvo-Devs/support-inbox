@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Inbox, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, Inbox, KeyRound, RefreshCw, Search } from "lucide-react";
 
 import { Button, EmptyState, ErrorMessage, Input, cn, toast } from "../ui/ui-deps";
 import type { ThreadStatus } from "../shared/types";
-import { getApiErrorMessage, listThreads, postSync } from "./api";
+import { getApiErrorMessage, listThreads, needsSettings, postSync, type ApiRequestError } from "./api";
 import { SupportInboxProvider, useSupportInboxBasePath } from "./context";
 import { keys } from "./keys";
+import { SupportInboxSettings } from "./settings";
 import { ThreadList } from "./thread-list";
 import { ThreadView } from "./thread-view";
 
@@ -55,6 +56,8 @@ function SupportInboxPageInner({ sync }: { sync: boolean }) {
       listThreads({ basePath, status, q: debouncedQ, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    // Settings fixes a missing or refused key; retrying only delays the panel.
+    retry: (failureCount, error) => !needsSettings(error) && failureCount < 3,
     // Interval refetches of an infinite query re-run EVERY cached page
     // sequentially, so polling only runs while a single page is loaded; once
     // the admin pages deeper, the unread badge remains the freshness signal.
@@ -89,6 +92,10 @@ function SupportInboxPageInner({ sync }: { sync: boolean }) {
   );
 
   const showDetail = selectedThreadId !== null;
+
+  // Not connected, or the saved key stopped working: the whole card says so,
+  // with the button that fixes it, instead of an error in the list column.
+  if (needsSettings(threadsQuery.error)) return <ConnectPanel error={threadsQuery.error} />;
 
   return (
     <div className="flex h-full min-h-[520px] overflow-hidden rounded-2xl border border-border/70 bg-card">
@@ -215,6 +222,32 @@ function SupportInboxPageInner({ sync }: { sync: boolean }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const CONNECT_TITLES: Record<string, string> = {
+  NOT_CONNECTED: "Connect Email to Reacharound",
+  KEY_UNREADABLE: "Add the inbox key again",
+  KEY_REFUSED: "Reacharound refused the saved key",
+};
+
+/** Reacharound mode with no working key: what's wrong, and the button that opens Settings. */
+function ConnectPanel({ error }: { error: ApiRequestError }) {
+  return (
+    <div className="flex h-full min-h-[520px] items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-card p-6">
+      <EmptyState
+        icon={KeyRound}
+        title={CONNECT_TITLES[error.code ?? ""] ?? CONNECT_TITLES.NOT_CONNECTED!}
+        body={error.message}
+        action={
+          <SupportInboxSettings
+            label={error.code === "KEY_REFUSED" ? "Replace the key" : "Add the key"}
+            variant="default"
+          />
+        }
+        className="border-0 bg-transparent"
+      />
     </div>
   );
 }

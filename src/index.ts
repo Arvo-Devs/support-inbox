@@ -6,6 +6,8 @@ import { createRouter } from "./server/router";
 import { createSupportStore } from "./server/store";
 import { createWebhookHandler } from "./server/webhook";
 
+export { drizzleKeyStore, memoryKeyStore } from "./server/key-store";
+export type { ReacharoundKeyStore, ReacharoundSavedKey } from "./server/key-store";
 export type {
   SupportInboxActor,
   SupportInboxConfig,
@@ -24,10 +26,11 @@ type RouteHandlers = {
  * catch-all route); both dispatch on the URL pathname only.
  *
  * Two modes, chosen by the config's shape:
- *  - **Reacharound** (`{ reacharound: { key }, authorize }`) — the standard
- *    install. The brand's inbox key is the one setting: routes forward to
- *    Reacharound, which holds the mail; there is no database, no Resend key
- *    and no webhook, so only `routeHandlers` is returned.
+ *  - **Reacharound** (`{ reacharound: { keyStore }, authorize }`) — the
+ *    standard install. Routes forward to Reacharound, which holds the mail,
+ *    with the brand's inbox key that an admin saved on the Email page's
+ *    Settings (`keyStore` keeps it); there is no Resend key and no webhook, so
+ *    only `routeHandlers` is returned.
  *  - **Self-hosted** (`{ db, resendApiKey, fromEmail, webhookSecret, … }`) —
  *    the app stores and sends its own mail, for an app whose mail must stay
  *    on its own servers (kept on purpose, 2026-10-28); mount `webhookHandler`

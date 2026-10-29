@@ -7,17 +7,22 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
 import { createSupportInbox } from "../index";
+import { memoryKeyStore } from "../server/key-store";
 import {
   ApiRequestError,
   getAttachmentUrl,
+  getConnection,
   getThread,
   getUnreadCount,
   listThreads,
   postReply,
   postSync,
+  saveInboxKey,
   setThreadRead,
   setThreadStatus,
 } from "./api";
+import { keys } from "./keys";
+import { SupportInboxSettings } from "./settings";
 import { SupportInboxPage } from "./support-inbox-page";
 
 // PRO-5000 Part 2, judged against the plan rather than the router's internals:
@@ -26,8 +31,8 @@ import { SupportInboxPage } from "./support-inbox-page";
 //     (client/api.ts, what every component calls) works unchanged against an
 //     app mounted in Reacharound mode, end to end.
 //   "passes the request on … with the key and the acting person"
-//   "no tables, no webhook and no Resend key" — every outbound call goes to
-//     Reacharound and nowhere else; the app is built with no db/Resend config.
+//   "no webhook and no Resend key" — every outbound call goes to Reacharound
+//     and nowhere else; the app is built with no Resend config.
 //   "the key stays on the app's server, the browser only talks to the app" —
 //     the key appears in no response body or header the browser receives,
 //     error answers included.
@@ -41,6 +46,7 @@ const APP = "https://bfl.example";
 const BASE_PATH = "/api/admin/support";
 const RA = "https://ra.example";
 const KEY = "rik_secret_key_that_must_never_reach_a_browser";
+const OTHER_KEY = "rik_another_key_reacharound_does_not_know";
 
 type Thread = {
   id: string;
@@ -168,7 +174,7 @@ function fakeReacharound() {
 function mountApp(key = KEY) {
   const ra = fakeReacharound();
   const inbox = createSupportInbox({
-    reacharound: { url: RA, key },
+    reacharound: { url: RA, keyStore: memoryKeyStore(key) },
     authorize: async () => ({ id: "admin-1", email: "jane@betterfans.link", name: "Jane Support" }),
     fetch: ra.fetch,
   });
@@ -248,20 +254,21 @@ test("errors reach the screens as ApiRequestError with Reacharound's message", a
   });
 });
 
-test("a revoked key reaches the screens as a clear, key-free message", async () => {
+test("a revoked key reaches the screens as a clear, key-free message that points to Settings", async () => {
   const app = mountApp("rik_revoked_key_also_secret");
   await withBrowserFetch(app.browserFetch, async () => {
     await assert.rejects(getUnreadCount(BASE_PATH), (error: unknown) => {
       assert.ok(error instanceof ApiRequestError);
-      assert.equal(error.status, 502);
-      assert.match(error.message, /refused this app's inbox key/);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "KEY_REFUSED");
+      assert.match(error.message, /Settings/);
       return true;
     });
   });
   assert.ok(app.received.every((text) => !text.includes("rik_revoked_key_also_secret")));
 });
 
-test("no tables, no Resend: every outbound call goes to Reacharound's inbox API and nowhere else", async () => {
+test("no Resend: every outbound call goes to Reacharound's inbox API and nowhere else", async () => {
   const app = mountApp();
   await withBrowserFetch(app.browserFetch, async () => {
     await listThreads({ basePath: BASE_PATH, status: "all", q: "payout" });
@@ -278,8 +285,8 @@ test("no tables, no Resend: every outbound call goes to Reacharound's inbox API 
     assert.ok(url.startsWith(`${RA}/api/inbox/`), url);
     assert.ok(!url.includes("resend.com"), url);
   }
-  // Built from a config with no db, no Resend key and no webhook secret — and
-  // there is no webhook handler to mount.
+  // Built from a config with no Resend key and no webhook secret — and there
+  // is no webhook handler to mount.
   assert.equal("webhookHandler" in app.inbox, false);
 });
 
@@ -297,9 +304,15 @@ test("the inbox key never reaches the browser — in any body or header, success
       method: "POST",
       body: "not json",
     }); // 400 path
+    await getConnection(BASE_PATH); // Settings, connected
+    await saveInboxKey(BASE_PATH, KEY); // Settings saving the same key again
+    await saveInboxKey(BASE_PATH, OTHER_KEY).catch(() => undefined); // refused by Reacharound
   });
-  assert.ok(app.received.length >= 16);
-  for (const text of app.received) assert.ok(!text.includes(KEY), "the key leaked to the browser");
+  assert.ok(app.received.length >= 22);
+  for (const text of app.received) {
+    assert.ok(!text.includes(KEY), "the key leaked to the browser");
+    assert.ok(!text.includes(OTHER_KEY), "a refused key was repeated to the browser");
+  }
 });
 
 // --- the Sync button -----------------------------------------------------------
@@ -322,4 +335,78 @@ test("SupportInboxPage hides the Sync button with sync={false} (Reacharound mode
 test("SupportInboxPage keeps the Sync button by default (self-hosted mode unchanged)", () => {
   const html = renderPage({});
   assert.ok(html.includes('aria-label="Sync inbox"'));
+});
+
+// --- Settings and the Connect panel (2026-10-29) -----------------------------
+
+test("Settings saves a key Reacharound takes, and the screens work with it at once", async () => {
+  // An app with no key saved yet. The fake Reacharound knows KEY.
+  const ra = fakeReacharound();
+  const empty = createSupportInbox({
+    reacharound: { url: RA, keyStore: memoryKeyStore() },
+    authorize: async () => ({ id: "admin-1", email: "jane@betterfans.link", name: "Jane Support" }),
+    fetch: ra.fetch,
+  });
+  const browserFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(new URL(String(input), APP), init);
+    const handler = request.method === "POST" ? empty.routeHandlers.POST : empty.routeHandlers.GET;
+    return handler(request);
+  }) as typeof globalThis.fetch;
+  await withBrowserFetch(browserFetch, async () => {
+    await assert.rejects(listThreads({ basePath: BASE_PATH, status: "open", q: "" }), (error: unknown) => {
+      assert.ok(error instanceof ApiRequestError);
+      assert.equal(error.code, "NOT_CONNECTED");
+      return true;
+    });
+    assert.deepEqual(await getConnection(BASE_PATH), { connected: false, problem: "no_key", key: null });
+    const saved = await saveInboxKey(BASE_PATH, KEY);
+    assert.equal(saved.connected, true);
+    assert.equal(saved.key?.hint, KEY.slice(-4));
+    assert.equal((await listThreads({ basePath: BASE_PATH, status: "open", q: "" })).threads.length, 1);
+  });
+});
+
+function renderWith(client: QueryClient, element: ReturnType<typeof createElement>): string {
+  return renderToString(createElement(QueryClientProvider, { client }, element));
+}
+
+test("SupportInboxPage shows the Connect panel, with Add the key, when Email isn't connected", async () => {
+  // retryOnMount off: render the failed load as the browser ends up showing it.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
+  await client.prefetchInfiniteQuery({
+    queryKey: keys.threads({ status: "open", q: "" }),
+    queryFn: async () => {
+      throw new ApiRequestError(
+        "Email isn't connected to Reacharound yet. An admin can add the brand's inbox key in Settings.",
+        409,
+        "NOT_CONNECTED",
+      );
+    },
+    initialPageParam: undefined as string | undefined,
+  });
+  const html = renderWith(client, createElement(SupportInboxPage, { sync: false }));
+  assert.ok(html.includes("Connect Email to Reacharound"));
+  assert.ok(html.includes("Add the key"));
+  assert.ok(!html.includes('aria-label="Search conversations"'), "the list is replaced, not shown with an error");
+});
+
+test("a refused key says so on the Connect panel, with Replace the key", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
+  await client.prefetchInfiniteQuery({
+    queryKey: keys.threads({ status: "open", q: "" }),
+    queryFn: async () => {
+      throw new ApiRequestError("Reacharound refused the saved inbox key.", 409, "KEY_REFUSED");
+    },
+    initialPageParam: undefined as string | undefined,
+  });
+  const html = renderWith(client, createElement(SupportInboxPage, { sync: false }));
+  assert.ok(html.includes("Reacharound refused the saved key"));
+  assert.ok(html.includes("Replace the key"));
+});
+
+test("SupportInboxSettings is one Settings button; the dialog opens only when it is clicked", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const html = renderWith(client, createElement(SupportInboxSettings, {}));
+  assert.match(html, /Settings<\/button>/);
+  assert.ok(!html.includes("Email settings"), "the dialog is closed until clicked");
 });

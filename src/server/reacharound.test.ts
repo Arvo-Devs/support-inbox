@@ -4,12 +4,15 @@ import test from "node:test";
 import { normalizeReacharoundConfig, REACHAROUND_URL } from "../config";
 import type { SupportInboxReacharoundConfig } from "../config";
 import { createSupportInbox } from "../index";
+import type { ConnectionResponse } from "../shared/types";
+import { memoryKeyStore, type ReacharoundKeyStore } from "./key-store";
 import { createReacharoundRouter } from "./reacharound";
 
 // Reacharound mode (PRO-5000): every route is forwarded to Reacharound's inbox
-// API with the inbox key and the acting admin, and every failure comes back as
-// an `{ error }` the screens can show. Nothing here reaches the network — the
-// router's `fetch` is a recorder that answers with scripted responses.
+// API with the inbox key Settings saved and the acting admin, and every
+// failure comes back as an `{ error }` the screens can show. Nothing here
+// reaches the network — the router's `fetch` is a recorder that answers with
+// scripted responses, and the key lives in a memory key store.
 
 const BASE = "https://admin.example/api/admin/support";
 const RA = "https://ra.example";
@@ -25,6 +28,7 @@ function setup(
   options: {
     respond?: (call: Call) => Response | Promise<Response>;
     overrides?: Partial<SupportInboxReacharoundConfig>;
+    keyStore?: ReacharoundKeyStore;
   } = {},
 ) {
   const calls: Call[] = [];
@@ -50,7 +54,7 @@ function setup(
     ]);
   }) as typeof fetch;
   const config: SupportInboxReacharoundConfig = {
-    reacharound: { url: RA, key: KEY },
+    reacharound: { url: RA, keyStore: options.keyStore ?? memoryKeyStore(KEY) },
     authorize: async () => ({ id: "admin-1", email: "jane@betterfans.link", name: "Jane Support" }),
     fetch: fetchStub,
     ...options.overrides,
@@ -322,7 +326,6 @@ for (const [status, error] of [
   [422, "This brand has no verified sending domain to reply from."],
   [429, "This brand has started 100 new conversations in the last 24 hours, the most allowed. Try again later. Replies to existing conversations still work."],
   [500, "The reply WAS sent but couldn't be recorded."],
-  [502, "Sending the reply failed: Resend API 500."],
 ] as const) {
   test(`Reacharound's ${status} passes through with its message`, async () => {
     const { handler } = setup({ respond: () => Response.json({ error }, { status }) });
@@ -332,34 +335,49 @@ for (const [status, error] of [
   });
 }
 
-test("a refused inbox key (401) becomes a 502 that names the key, not 'logged out'", async () => {
+for (const status of [502, 504]) {
+  test(`Reacharound's own ${status} reaches the app as a 503 with its message, so no proxy can swap it`, async () => {
+    const error = "Sending the reply failed: Resend API 500.";
+    const { handler } = setup({ respond: () => Response.json({ error }, { status }) });
+    const res = await handler(postJson(`${BASE}/threads/${T1}/reply`, { text: "hi", replyAttemptId: "x" }));
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error });
+  });
+}
+
+test("a refused inbox key (401) is a 409 that sends the admin to Settings, not 'logged out'", async () => {
   const { handler } = setup({
     respond: () => Response.json({ error: "invalid token" }, { status: 401 }),
   });
   const res = await handler(new Request(`${BASE}/threads`));
-  assert.equal(res.status, 502);
-  assert.match(((await res.json()) as { error: string }).error, /refused this app's inbox key/);
+  assert.equal(res.status, 409);
+  const body = (await res.json()) as { error: string; code: string };
+  assert.equal(body.code, "KEY_REFUSED");
+  assert.match(body.error, /refused the saved inbox key/);
+  assert.match(body.error, /Settings/);
 });
 
-test("Reacharound unreachable is a 502", async () => {
+test("Reacharound unreachable is a 503 worth retrying", async () => {
   const { handler } = setup({
     respond: () => {
       throw new TypeError("fetch failed");
     },
   });
   const res = await handler(new Request(`${BASE}/threads`));
-  assert.equal(res.status, 502);
-  assert.match(((await res.json()) as { error: string }).error, /Could not reach Reacharound/);
+  assert.equal(res.status, 503);
+  const body = (await res.json()) as { error: string; code: string };
+  assert.equal(body.code, "REACHAROUND_UNAVAILABLE");
+  assert.match(body.error, /Could not reach Reacharound/);
 });
 
-test("Reacharound too slow: the router gives up at its timeout with a 502", async () => {
+test("Reacharound too slow: the router gives up at its timeout with a 503", async () => {
   const { handler } = setup({
     overrides: { timeoutMs: 25 },
     respond: () => new Promise<Response>(() => {}), // never answers
   });
   const started = Date.now();
   const res = await handler(new Request(`${BASE}/threads`));
-  assert.equal(res.status, 502);
+  assert.equal(res.status, 503);
   assert.match(((await res.json()) as { error: string }).error, /took too long/);
   assert.ok(Date.now() - started < 2000);
 });
@@ -371,7 +389,7 @@ test("a timeout from fetch (TimeoutError) says Reacharound took too long", async
     },
   });
   const res = await handler(new Request(`${BASE}/threads`));
-  assert.equal(res.status, 502);
+  assert.equal(res.status, 503);
   assert.match(((await res.json()) as { error: string }).error, /took too long/);
 });
 
@@ -383,22 +401,22 @@ test("every call refuses redirects, so the key is never re-sent elsewhere", asyn
   for (const call of calls) assert.equal(call.redirect, "error");
 });
 
-test("a redirect from Reacharound (fetch throws on redirect: error) is a 502", async () => {
+test("a redirect from Reacharound (fetch throws on redirect: error) is a 503", async () => {
   const { handler } = setup({
     respond: () => {
       throw new TypeError("fetch failed: unexpected redirect");
     },
   });
   const res = await handler(new Request(`${BASE}/threads`));
-  assert.equal(res.status, 502);
+  assert.equal(res.status, 503);
   assert.match(((await res.json()) as { error: string }).error, /Could not reach Reacharound/);
 });
 
 for (const route of ["threads", "threads/unread-count"]) {
-  test(`a 404 on GET /${route} means no inbox API at that address: a 502 that says so`, async () => {
+  test(`a 404 on GET /${route} means no inbox API at that address: a 503 that says so`, async () => {
     const { handler } = setup({ respond: () => Response.json({ error: "Not found" }, { status: 404 }) });
     const res = await handler(new Request(`${BASE}/${route}`));
-    assert.equal(res.status, 502);
+    assert.equal(res.status, 503);
     assert.match(((await res.json()) as { error: string }).error, /didn't recognise this app's request/);
   });
 }
@@ -436,20 +454,23 @@ test("failure logs never carry the search text", async () => {
   assert.match(text, /\/threads/);
 });
 
-test("a non-JSON answer (a proxy's HTML error page) is a 502", async () => {
+test("a non-JSON answer (a proxy's HTML error page) is a 503", async () => {
   const { handler } = setup({
     respond: () => new Response("<html>Bad gateway</html>", { status: 503, headers: { "content-type": "text/html" } }),
   });
   const res = await handler(new Request(`${BASE}/threads`));
-  assert.equal(res.status, 502);
+  assert.equal(res.status, 503);
   assert.match(((await res.json()) as { error: string }).error, /unexpected answer/);
 });
 
 // --- configuration ----------------------------------------------------------
 
-test("config: the key is the one setting; the address is Reacharound's own", () => {
+test("config: the address is Reacharound's own unless url says otherwise", () => {
   for (const url of [undefined, "", "  "]) {
-    const c = normalizeReacharoundConfig({ reacharound: { key: KEY, url }, authorize: async () => null });
+    const c = normalizeReacharoundConfig({
+      reacharound: { keyStore: memoryKeyStore(), url },
+      authorize: async () => null,
+    });
     assert.equal(c.inboxApiBase, "https://reacharound.xyz/api/inbox");
   }
   assert.equal(REACHAROUND_URL, "https://reacharound.xyz");
@@ -458,7 +479,7 @@ test("config: the key is the one setting; the address is Reacharound's own", () 
 test("config: plain http is allowed only to this machine", () => {
   for (const url of ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"]) {
     const c = normalizeReacharoundConfig({
-      reacharound: { url, key: KEY },
+      reacharound: { url, keyStore: memoryKeyStore() },
       authorize: async () => null,
     });
     assert.ok(c.inboxApiBase.startsWith(url));
@@ -467,7 +488,7 @@ test("config: plain http is allowed only to this machine", () => {
 
 test("config: builds the inbox API base from a url, trailing slash or not", () => {
   const a = normalizeReacharoundConfig({
-    reacharound: { url: `${RA}/`, key: KEY },
+    reacharound: { url: `${RA}/`, keyStore: memoryKeyStore() },
     authorize: async () => null,
   });
   assert.equal(a.inboxApiBase, UPSTREAM);
@@ -475,26 +496,19 @@ test("config: builds the inbox API base from a url, trailing slash or not", () =
   assert.equal(a.timeoutMs, 15_000);
 });
 
-test("config: a bad url, or a missing or foreign key, fails at creation without repeating the key", () => {
+test("config: a bad url or a missing key store fails at creation", () => {
   const make = (reacharound: SupportInboxReacharoundConfig["reacharound"]) => () =>
     normalizeReacharoundConfig({ reacharound, authorize: async () => null });
-  assert.throws(make({ url: "not a url", key: KEY }), /not a URL/);
-  assert.throws(make({ url: "ftp://ra.example", key: KEY }), /must be https/);
-  assert.throws(make({ url: "http://ra.example", key: KEY }), /must be https/);
-  assert.throws(make({ key: "  " }), /key is empty/);
-  for (const key of ["re_a_resend_key", "REACHAROUND_INBOX_KEY=rik_x", '"rik_quoted"']) {
-    assert.throws(make({ key }), (error: Error) => {
-      assert.match(error.message, /isn't a Reacharound inbox key/);
-      assert.ok(!error.message.includes(key), "the error must not repeat the key");
-      return true;
-    });
-  }
+  assert.throws(make({ url: "not a url", keyStore: memoryKeyStore() }), /not a URL/);
+  assert.throws(make({ url: "ftp://ra.example", keyStore: memoryKeyStore() }), /must be https/);
+  assert.throws(make({ url: "http://ra.example", keyStore: memoryKeyStore() }), /must be https/);
+  assert.throws(make({} as SupportInboxReacharoundConfig["reacharound"]), /keyStore is missing/);
 });
 
-test("createSupportInbox in Reacharound mode needs no db, Resend key or webhook", async () => {
+test("createSupportInbox in Reacharound mode needs no Resend key or webhook", async () => {
   const calls: string[] = [];
   const inbox = createSupportInbox({
-    reacharound: { url: RA, key: KEY },
+    reacharound: { url: RA, keyStore: memoryKeyStore(KEY) },
     authorize: async () => ({ id: "a", email: "jane@betterfans.link" }),
     fetch: (async (input: RequestInfo | URL) => {
       calls.push(String(input));
@@ -505,4 +519,173 @@ test("createSupportInbox in Reacharound mode needs no db, Resend key or webhook"
   const res = await inbox.routeHandlers.GET(new Request(`${BASE}/threads/unread-count`));
   assert.deepEqual(await res.json(), { count: 0 });
   assert.deepEqual(calls, [`${UPSTREAM}/threads/unread-count`]);
+});
+
+// --- the saved key and Settings (2026-10-29) ------------------------------------
+
+const NEW_KEY = `rik_${"N".repeat(32)}`;
+
+test("no saved key: every Reacharound route is a 409 that points to Settings, and nothing is sent", async () => {
+  const { handler, calls } = setup({ keyStore: memoryKeyStore() });
+  for (const request of [
+    new Request(`${BASE}/threads`),
+    new Request(`${BASE}/threads/unread-count`),
+    new Request(`${BASE}/threads/${T1}`),
+    postJson(`${BASE}/threads/${T1}/reply`, { text: "hi", replyAttemptId: "x" }),
+    new Request(`${BASE}/attachments/${A1}/url`),
+  ]) {
+    const res = await handler(request);
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as { error: string; code: string };
+    assert.equal(body.code, "NOT_CONNECTED");
+    assert.match(body.error, /Settings/);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("a saved key that can't be opened (the secret changed) asks for it again, and sends nothing", async () => {
+  const unreadable: ReacharoundKeyStore = {
+    read: async () => ({ key: null, hint: "abcd", savedAt: new Date(), savedBy: "kai@example.com" }),
+    write: async () => {
+      throw new Error("not used");
+    },
+  };
+  const { handler, calls } = setup({ keyStore: unreadable });
+  const res = await handler(new Request(`${BASE}/threads`));
+  assert.equal(res.status, 409);
+  assert.equal(((await res.json()) as { code: string }).code, "KEY_UNREADABLE");
+  assert.equal(calls.length, 0);
+});
+
+test("every request reads the key fresh, so a key saved in Settings is used at once", async () => {
+  const store = memoryKeyStore(KEY);
+  const { handler, calls } = setup({ keyStore: store, respond: () => Response.json({ count: 0 }) });
+  await handler(new Request(`${BASE}/threads/unread-count`));
+  await store.write({ key: NEW_KEY, savedBy: "kai@example.com" });
+  await handler(new Request(`${BASE}/threads/unread-count`));
+  assert.deepEqual(
+    calls.map((call) => call.headers.get("authorization")),
+    [`Bearer ${KEY}`, `Bearer ${NEW_KEY}`],
+  );
+});
+
+test("GET /connection with no key: not connected, no key, and Reacharound is not asked", async () => {
+  const { handler, calls } = setup({ keyStore: memoryKeyStore() });
+  const res = await handler(new Request(`${BASE}/connection`));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { connected: false, problem: "no_key", key: null });
+  assert.equal(calls.length, 0);
+});
+
+test("GET /connection checks the saved key with Reacharound and shows only its last four characters", async () => {
+  const store = memoryKeyStore();
+  await store.write({ key: NEW_KEY, savedBy: "kai@example.com" });
+  const { handler, calls } = setup({ keyStore: store, respond: () => Response.json({ count: 3 }) });
+  const res = await handler(new Request(`${BASE}/connection`));
+  const text = await res.text();
+  assert.ok(!text.includes(NEW_KEY), "the key must never reach the browser");
+  const body = JSON.parse(text) as ConnectionResponse;
+  assert.equal(body.connected, true);
+  assert.equal(body.problem, null);
+  assert.equal(body.key?.hint, "NNNN");
+  assert.equal(body.key?.savedBy, "kai@example.com");
+  assert.deepEqual(
+    calls.map((call) => [call.url, call.headers.get("authorization")]),
+    [[`${UPSTREAM}/threads/unread-count`, `Bearer ${NEW_KEY}`]],
+  );
+});
+
+test("GET /connection with a key Reacharound refuses says so: it was replaced there", async () => {
+  const { handler } = setup({
+    respond: () => Response.json({ error: "invalid token" }, { status: 401 }),
+  });
+  const body = (await (await handler(new Request(`${BASE}/connection`))).json()) as ConnectionResponse;
+  assert.equal(body.connected, false);
+  assert.equal(body.problem, "key_refused");
+  assert.equal(body.key?.hint, KEY.slice(-4));
+});
+
+test("GET /connection when Reacharound can't be reached: unreachable, not refused", async () => {
+  const { handler } = setup({
+    respond: () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+  const body = (await (await handler(new Request(`${BASE}/connection`))).json()) as ConnectionResponse;
+  assert.equal(body.problem, "unreachable");
+});
+
+test("POST /connection saves a key Reacharound takes, trimmed, records who saved it, and never returns it", async () => {
+  const store = memoryKeyStore();
+  const { handler, calls } = setup({ keyStore: store, respond: () => Response.json({ count: 0 }) });
+  const res = await handler(postJson(`${BASE}/connection`, { key: `  ${NEW_KEY}\n` }));
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.ok(!text.includes(NEW_KEY), "the key must never reach the browser");
+  const body = JSON.parse(text) as ConnectionResponse;
+  assert.equal(body.connected, true);
+  assert.equal(body.key?.savedBy, "jane@betterfans.link");
+  assert.equal((await store.read())?.key, NEW_KEY);
+  assert.deepEqual(calls.map((call) => call.headers.get("authorization")), [`Bearer ${NEW_KEY}`]);
+});
+
+test("POST /connection refuses what isn't an inbox key, without asking Reacharound or repeating it", async () => {
+  const store = memoryKeyStore(KEY);
+  const { handler, calls } = setup({ keyStore: store });
+  for (const key of [
+    "",
+    "re_a_resend_key_1234567890",
+    "REACHAROUND_INBOX_KEY=rik_abcdefghijklmnopqrstuvwxyz",
+    '"rik_abcdefghijklmnopqrstuvwxyz"',
+    "rik_abcdefghij klmnopqrstuvwxyz",
+    "rik_short",
+    42,
+  ]) {
+    const res = await handler(postJson(`${BASE}/connection`, { key }));
+    assert.equal(res.status, 400);
+    const text = await res.text();
+    if (typeof key === "string" && key) assert.ok(!text.includes(key), "the error must not repeat the key");
+  }
+  assert.equal(calls.length, 0);
+  assert.equal((await store.read())?.key, KEY, "the saved key is untouched");
+});
+
+test("POST /connection refuses a key Reacharound doesn't know, and keeps the one that was there", async () => {
+  const store = memoryKeyStore(KEY);
+  const { handler } = setup({
+    keyStore: store,
+    respond: () => Response.json({ error: "invalid token" }, { status: 401 }),
+  });
+  const res = await handler(postJson(`${BASE}/connection`, { key: NEW_KEY }));
+  assert.equal(res.status, 400);
+  assert.match(((await res.json()) as { error: string }).error, /doesn't know this key/);
+  assert.equal((await store.read())?.key, KEY);
+});
+
+test("POST /connection when Reacharound can't check the key saves nothing (503)", async () => {
+  const store = memoryKeyStore();
+  const { handler } = setup({
+    keyStore: store,
+    respond: () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+  const res = await handler(postJson(`${BASE}/connection`, { key: NEW_KEY }));
+  assert.equal(res.status, 503);
+  assert.equal(((await res.json()) as { code: string }).code, "REACHAROUND_UNAVAILABLE");
+  assert.equal(await store.read(), null);
+});
+
+test("Settings has the same gate as every route: authorize null is a 404, a cross-origin save a 403", async () => {
+  const store = memoryKeyStore();
+  const denied = setup({ keyStore: store, overrides: { authorize: async () => null } });
+  assert.equal((await denied.handler(new Request(`${BASE}/connection`))).status, 404);
+  assert.equal((await denied.handler(postJson(`${BASE}/connection`, { key: NEW_KEY }))).status, 404);
+  const { handler, calls } = setup({ keyStore: store });
+  const res = await handler(
+    postJson(`${BASE}/connection`, { key: NEW_KEY }, { origin: "https://evil.example" }),
+  );
+  assert.equal(res.status, 403);
+  assert.equal(calls.length, 0);
+  assert.equal(await store.read(), null);
 });

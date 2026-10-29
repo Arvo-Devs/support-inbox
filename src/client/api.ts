@@ -4,6 +4,7 @@
 
 import type {
   AttachmentUrlResponse,
+  ConnectionResponse,
   ReplyResponse,
   SyncResponse,
   ThreadDetailResponse,
@@ -15,11 +16,14 @@ import type {
 
 export class ApiRequestError extends Error {
   readonly status: number;
+  /** The server's `code`, when it sent one: why Reacharound mode can't answer. */
+  readonly code: string | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string | null = null) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -37,15 +41,17 @@ export async function apiFetch<T>(
   const res = await fetch(`${basePath}${path}`, init);
   if (!res.ok) {
     let message = res.statusText || `Request failed (${res.status})`;
+    let code: string | null = null;
     try {
-      const body = (await res.json()) as { error?: unknown };
+      const body = (await res.json()) as { error?: unknown; code?: unknown };
       if (body && typeof body.error === "string" && body.error.length > 0) {
         message = body.error;
       }
+      if (body && typeof body.code === "string" && body.code.length > 0) code = body.code;
     } catch {
       // Non-JSON error body — keep the status-text fallback.
     }
-    throw new ApiRequestError(message, res.status);
+    throw new ApiRequestError(message, res.status, code);
   }
   return (await res.json()) as T;
 }
@@ -132,5 +138,27 @@ export function getAttachmentUrl(
   return apiFetch<AttachmentUrlResponse>(
     basePath,
     `/attachments/${encodeURIComponent(attachmentId)}/url`,
+  );
+}
+
+/** Reacharound mode: what Settings shows (is a key saved, does Reacharound take it). */
+export function getConnection(basePath: string): Promise<ConnectionResponse> {
+  return apiFetch<ConnectionResponse>(basePath, "/connection");
+}
+
+/** Reacharound mode: Settings saving the brand's inbox key. Checked by Reacharound first. */
+export function saveInboxKey(basePath: string, key: string): Promise<ConnectionResponse> {
+  return apiFetch<ConnectionResponse>(basePath, "/connection", jsonPost({ key }));
+}
+
+/**
+ * The answers Settings fixes (no key saved, a key that can't be opened, a key
+ * Reacharound refused): the page shows its Connect panel for these rather
+ * than an error, and retrying won't help.
+ */
+export function needsSettings(error: unknown): error is ApiRequestError {
+  return (
+    error instanceof ApiRequestError &&
+    (error.code === "NOT_CONNECTED" || error.code === "KEY_UNREADABLE" || error.code === "KEY_REFUSED")
   );
 }

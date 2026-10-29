@@ -33,7 +33,7 @@ export function SupportUnreadBadge({ basePath }: SupportUnreadBadgeProps) {
     <Badge
       tone="down"
       className="h-5 px-1.5 text-[11px]"
-      aria-label={`${count} unread support ${count === 1 ? "conversation" : "conversations"}`}
+      aria-label={`${count} unread email ${count === 1 ? "conversation" : "conversations"}`}
     >
       {count > 99 ? "99+" : count}
     </Badge>
