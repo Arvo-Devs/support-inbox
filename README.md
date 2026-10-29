@@ -4,7 +4,7 @@ A support-email inbox for your admin panel. Customers email your public support 
 
 It runs in one of two modes:
 
-- **Reacharound mode — the standard install.** [Reacharound](https://github.com/Arvo-Devs/Reacharound-Emails) is the hub that receives every project's support mail. Your app keeps the package's routes and screens, and each route passes the request on to Reacharound with your project's **inbox key** and the admin who is acting. Your app has **no tables, no webhook and no Resend key**; the same conversations show in Reacharound's own Inbox, in step. See [Reacharound mode](#reacharound-mode-standard).
+- **Reacharound mode — the standard install.** [Reacharound](https://github.com/Arvo-Devs/Reacharound-Emails) is the hub that receives every project's support mail. Your app keeps the package's routes and screens, and each route passes the request on to Reacharound with your brand's **inbox key** and the admin who is acting. The key is the one setting: it tells Reacharound which brand you are, and the package already knows where Reacharound is. Your app has **no tables, no webhook and no Resend key**; the same conversations show in Reacharound's own Inbox, in step. See [Reacharound mode](#reacharound-mode-standard).
 - **Self-hosted mode.** The app stores and sends its own mail: its own DB tables, webhook endpoint and secret, Resend domain and API key. Kept for now; see [Self-hosted mode](#self-hosted-mode).
 
 Improvements ship via a version bump that each host adopts on its own schedule.
@@ -64,18 +64,18 @@ Adapting to a completely different design system means editing exactly one file:
 
 ## Reacharound mode (standard)
 
-**Before you start**, in Reacharound (needs a Reacharound admin):
+**One setting: the brand's inbox key.** The key tells Reacharound which brand this app is, and the package knows Reacharound's address (`https://reacharound.xyz`), so there is nothing else to configure.
 
-1. The project (brand) for this app exists and receives its mail — see Reacharound's Setup guide.
-2. On the brand card, **Generate key** under *Inbox key*. It is shown once; copy it.
-3. Set **App sends from** to the address this app answers from (e.g. `hello@yourbrand.com`, on a verified domain). Conversations started from the Support page go out from it.
+**Before you start**, in [Reacharound](https://reacharound.xyz) (needs a Reacharound team admin):
 
-**Env vars** (server-only — never `NEXT_PUBLIC_`):
+1. The brand for this app exists and receives its mail: **Settings › Brands › Add brand**, then **Today › Inbox › Set up receiving** while that button shows.
+2. **Today › Inbox › Connect an app › Get a key** (the same panel is on the brand's card in Settings › Brands). It is shown once; copy it.
+3. Optional, in the same place: **App sends from**, the address conversations started from the Support page go out from (e.g. `hello@yourbrand.com`, on a verified domain). Left empty, they go out from `support@` the brand's domain.
+
+**Env var** (server-only — never `NEXT_PUBLIC_`):
 
 | Variable | Value |
 | --- | --- |
-| `REACHAROUND_URL` | Reacharound's base URL, e.g. `https://resend-analytics-hub.fly.dev` |
-| `REACHAROUND_PROJECT_ID` | The brand's project id (the uuid in its Inbox key URL) |
 | `REACHAROUND_INBOX_KEY` | The inbox key (`rik_…`). **It can send email as your brand.** |
 
 Two small host files (the config contract is `SupportInboxReacharoundConfig` in `src/config.ts`):
@@ -90,11 +90,7 @@ let cached: ReturnType<typeof createSupportInbox> | null = null;
 export function getSupportInbox() {
   if (!cached) {
     cached = createSupportInbox({
-      reacharound: {
-        url: process.env.REACHAROUND_URL ?? "",
-        projectId: process.env.REACHAROUND_PROJECT_ID ?? "",
-        key: process.env.REACHAROUND_INBOX_KEY ?? "",
-      },
+      reacharound: { key: process.env.REACHAROUND_INBOX_KEY ?? "" },
       authorize,      // (req: Request) => Promise<{ id, email, name? } | null> — email REQUIRED here
       lookupCustomer, // optional: link a sender to your own user/org page
     });
@@ -103,7 +99,9 @@ export function getSupportInbox() {
 }
 ```
 
-A missing or malformed `url`, `projectId` or `key` throws on the first call, so a misconfigured deploy fails loudly instead of showing an empty inbox. The `url` must be `https://` (plain `http://` only for localhost): the key rides in every request.
+A missing key, or one that isn't an inbox key (they start with `rik_`), throws on the first call, so a misconfigured deploy fails loudly instead of showing an empty inbox. There is also `reacharound.url`, only for pointing a development copy at a Reacharound running on your own machine (`http://localhost:3000`); leave it out everywhere else. It must be `https://` (plain `http://` only for localhost): the key rides in every request.
+
+**Upgrading from a pin before the one-key change** (2026-10-28): delete `url` and `projectId` from the config, and the `REACHAROUND_URL` and `REACHAROUND_PROJECT_ID` settings from your server. The key itself stays the same.
 
 **2. Admin API route** (default basePath `/api/admin/support`) — the same file as self-hosted mode:
 
@@ -121,8 +119,8 @@ How it behaves:
 
 - **`authorize` stays the auth boundary**, exactly as in self-hosted mode (null = bare 404). The returned actor **must have an `email`**: Reacharound records it — and `name`, when given — as the sender of every reply and conversation, and shows "via <your brand>" beside it in its own Inbox. The actor is always taken from `authorize`, never from the browser's request.
 - **The key never leaves your server.** The browser only talks to your app; your app's routes call Reacharound with the key. Nothing from the browser's request (cookies, headers) is forwarded, and only the list route's own query parameters are.
-- **Errors arrive as `{ error }` the screens can show.** Reacharound's own answers pass through (400, 404, 409, 410, 422, 429, 502 …). A refused key (revoked or rotated in Reacharound) becomes a 502 telling the admin to check the key, and a 404 on the conversation list or unread count (a wrong or archived project id, or its inbox switched off) a 502 telling them to check the project id; a 404 on one conversation stays a 404. Reacharound unreachable, too slow (15 s, `timeoutMs`), answering with a redirect (never followed, so the key is never re-sent elsewhere) or with something that is not JSON is a 502 too. Logs name the route, never the search text.
-- **Revoking or rotating the key in Reacharound cuts the app off immediately**; update `REACHAROUND_INBOX_KEY` after a rotation.
+- **Errors arrive as `{ error }` the screens can show.** Reacharound's own answers pass through (400, 404, 409, 410, 422, 429, 502 …). A refused key (revoked or replaced in Reacharound, or its brand archived) becomes a 502 telling the admin to check the key, and a 404 on the conversation list or unread count (no inbox API at that address: a wrong `url`, or a Reacharound older than the one-key routes) a 502 saying the app isn't connected; a 404 on one conversation stays a 404. Reacharound unreachable, too slow (15 s, `timeoutMs`), answering with a redirect (never followed, so the key is never re-sent elsewhere) or with something that is not JSON is a 502 too. Logs name the route, never the search text.
+- **Revoking or replacing the key in Reacharound cuts the app off immediately**; update `REACHAROUND_INBOX_KEY` after a replacement.
 - **Every Reacharound-side rule applies**: replies go from the address the customer wrote to, conversations the app starts go from *App sends from*, and only this brand's mail is ever reachable with this key.
 - **Starting a conversation (`POST /threads`) is limited**: `to` must be one address (`jane@example.com` or `Jane <jane@example.com>`; a list is a 400), and a brand can start at most 100 conversations in any 24 hours, after which Reacharound answers 429 until the window rolls on. Replies to existing conversations are not limited. Self-hosted mode takes one address too, but has no daily limit.
 

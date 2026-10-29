@@ -148,26 +148,37 @@ export function normalizeBasePath(value: string | undefined): string {
 export type SupportInboxFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
+ * Where Reacharound lives. Every app talks to this one hub, so the package
+ * knows the address and an app never sets it (2026-10-28: one key, nothing
+ * else to configure).
+ */
+export const REACHAROUND_URL = "https://reacharound.xyz";
+
+/**
  * Reacharound mode (PRO-5000): the app keeps the package's routes and screens,
  * but holds no support data. Reacharound — the hub that receives every
  * project's support mail — is the store, and each route forwards to its inbox
- * API (`/api/inbox/{projectId}/…`) with this project's inbox key and the
- * acting admin. No `db`, no Resend key, no webhook: Reacharound receives,
- * threads and sends; the app is a window onto it, kept in step with the hub's
- * own Inbox by construction.
+ * API (`/api/inbox/…`) with this brand's inbox key and the acting admin. The
+ * key alone tells Reacharound which brand is asking, so it is the app's one
+ * setting. No `db`, no Resend key, no webhook: Reacharound receives, threads
+ * and sends; the app is a window onto it, kept in step with the hub's own
+ * Inbox by construction.
  */
 export type SupportInboxReacharoundConfig = {
   reacharound: {
-    /** Reacharound's base URL, e.g. `https://resend-analytics-hub.fly.dev`. https only (http for localhost). */
-    url: string;
-    /** This app's project (brand) id in Reacharound. */
-    projectId: string;
     /**
-     * The project's inbox key (`rik_…`, generated on the brand card). It can
+     * The brand's inbox key (`rik_…`), from Reacharound: Inbox › Connect an
+     * app › Get a key. It names the brand, so nothing else is needed. It can
      * SEND mail as this brand: server-only, never in client code or a
      * `NEXT_PUBLIC_` variable. The browser only ever talks to this app.
      */
     key: string;
+    /**
+     * Leave it out. Defaults to `REACHAROUND_URL`, the one hub every app talks
+     * to; only for pointing a development copy at a Reacharound running on
+     * this machine. https only (http for localhost). Empty means the default.
+     */
+    url?: string;
   };
   /**
    * Returns the acting admin or null (null = bare 404, as in self-hosted mode).
@@ -186,7 +197,7 @@ export type SupportInboxReacharoundConfig = {
 };
 
 export type ResolvedReacharoundConfig = {
-  /** `{url}/api/inbox/{projectId}`, no trailing slash. */
+  /** `{url}/api/inbox`, no trailing slash. */
   inboxApiBase: string;
   key: string;
   authorize: (req: Request) => Promise<SupportInboxActor | null>;
@@ -198,13 +209,15 @@ export type ResolvedReacharoundConfig = {
 
 /**
  * Validates at creation, where the misconfiguration is, rather than failing
- * every request: a malformed URL, a missing project id or a missing key would
- * otherwise surface as an opaque 502 on the first admin page load.
+ * every request: a missing or wrong key, or a malformed URL, would otherwise
+ * surface as an opaque 502 on the first admin page load. Errors never repeat
+ * the key: it can send mail.
  */
 export function normalizeReacharoundConfig(
   config: SupportInboxReacharoundConfig,
 ): ResolvedReacharoundConfig {
-  const { url, projectId, key } = config.reacharound;
+  const { key } = config.reacharound;
+  const url = config.reacharound.url?.trim() || REACHAROUND_URL;
   let base: URL;
   try {
     base = new URL(url.trim());
@@ -219,17 +232,18 @@ export function normalizeReacharoundConfig(
       `[support-inbox] reacharound.url must be https (http only for localhost): ${JSON.stringify(url)}`,
     );
   }
-  const id = projectId.trim();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-    throw new Error(`[support-inbox] reacharound.projectId is not a uuid: ${JSON.stringify(projectId)}`);
-  }
   const trimmedKey = key.trim();
   if (!trimmedKey) {
-    throw new Error("[support-inbox] reacharound.key is empty — set the project's inbox key");
+    throw new Error("[support-inbox] reacharound.key is empty — set the brand's inbox key (REACHAROUND_INBOX_KEY)");
+  }
+  // Catches the likely slips (a Resend key, a pasted `NAME=value` line, quotes)
+  // here rather than as "Reacharound refused this app's inbox key" later.
+  if (!trimmedKey.startsWith("rik_")) {
+    throw new Error("[support-inbox] reacharound.key isn't a Reacharound inbox key: those start with rik_");
   }
   const origin = base.toString().replace(/\/+$/, "");
   return {
-    inboxApiBase: `${origin}/api/inbox/${encodeURIComponent(id)}`,
+    inboxApiBase: `${origin}/api/inbox`,
     key: trimmedKey,
     authorize: config.authorize,
     lookupCustomer: config.lookupCustomer ?? null,

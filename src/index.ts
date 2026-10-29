@@ -24,10 +24,10 @@ type RouteHandlers = {
  * catch-all route); both dispatch on the URL pathname only.
  *
  * Two modes, chosen by the config's shape:
- *  - **Reacharound** (`{ reacharound: { url, projectId, key }, authorize }`) —
- *    the standard install. Routes forward to Reacharound, which holds the
- *    mail; there is no database, no Resend key and no webhook, so only
- *    `routeHandlers` is returned.
+ *  - **Reacharound** (`{ reacharound: { key }, authorize }`) — the standard
+ *    install. The brand's inbox key is the one setting: routes forward to
+ *    Reacharound, which holds the mail; there is no database, no Resend key
+ *    and no webhook, so only `routeHandlers` is returned.
  *  - **Self-hosted** (`{ db, resendApiKey, fromEmail, webhookSecret, … }`) —
  *    the app stores and sends its own mail; mount `webhookHandler` at the
  *    resend-inbound endpoint too.

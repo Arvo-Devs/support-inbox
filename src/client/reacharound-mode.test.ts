@@ -40,7 +40,6 @@ import { SupportInboxPage } from "./support-inbox-page";
 const APP = "https://bfl.example";
 const BASE_PATH = "/api/admin/support";
 const RA = "https://ra.example";
-const PROJECT = "9fb8d83e-277c-4e0c-93e8-e73b699b6cc3";
 const KEY = "rik_secret_key_that_must_never_reach_a_browser";
 
 type Thread = {
@@ -103,7 +102,8 @@ function fakeReacharound() {
     if (headers.get("authorization") !== `Bearer ${KEY}`) {
       return Response.json({ error: "invalid token" }, { status: 401 });
     }
-    const prefix = `/api/inbox/${PROJECT}`;
+    // The key alone names the brand: no brand id in the path (2026-10-28).
+    const prefix = "/api/inbox";
     if (url.origin !== RA || !url.pathname.startsWith(prefix)) {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
@@ -168,7 +168,7 @@ function fakeReacharound() {
 function mountApp(key = KEY) {
   const ra = fakeReacharound();
   const inbox = createSupportInbox({
-    reacharound: { url: RA, projectId: PROJECT, key },
+    reacharound: { url: RA, key },
     authorize: async () => ({ id: "admin-1", email: "jane@betterfans.link", name: "Jane Support" }),
     fetch: ra.fetch,
   });
@@ -275,7 +275,7 @@ test("no tables, no Resend: every outbound call goes to Reacharound's inbox API 
   });
   assert.equal(app.ra.outbound.length, 7); // sync makes no call at all
   for (const url of app.ra.outbound) {
-    assert.ok(url.startsWith(`${RA}/api/inbox/${PROJECT}/`), url);
+    assert.ok(url.startsWith(`${RA}/api/inbox/`), url);
     assert.ok(!url.includes("resend.com"), url);
   }
   // Built from a config with no db, no Resend key and no webhook secret — and

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeReacharoundConfig } from "../config";
+import { normalizeReacharoundConfig, REACHAROUND_URL } from "../config";
 import type { SupportInboxReacharoundConfig } from "../config";
 import { createSupportInbox } from "../index";
 import { createReacharoundRouter } from "./reacharound";
@@ -13,9 +13,9 @@ import { createReacharoundRouter } from "./reacharound";
 
 const BASE = "https://admin.example/api/admin/support";
 const RA = "https://ra.example";
-const PROJECT = "9fb8d83e-277c-4e0c-93e8-e73b699b6cc3";
 const KEY = "rik_test_key";
-const UPSTREAM = `${RA}/api/inbox/${PROJECT}`;
+// The key alone names the brand: no brand id in the path (2026-10-28).
+const UPSTREAM = `${RA}/api/inbox`;
 const T1 = "9c19d2f4-494f-4eb6-b923-7d3475753fda";
 const A1 = "06477b85-cac9-4346-8158-c35cb9968ecd";
 
@@ -50,7 +50,7 @@ function setup(
     ]);
   }) as typeof fetch;
   const config: SupportInboxReacharoundConfig = {
-    reacharound: { url: RA, projectId: PROJECT, key: KEY },
+    reacharound: { url: RA, key: KEY },
     authorize: async () => ({ id: "admin-1", email: "jane@betterfans.link", name: "Jane Support" }),
     fetch: fetchStub,
     ...options.overrides,
@@ -395,11 +395,11 @@ test("a redirect from Reacharound (fetch throws on redirect: error) is a 502", a
 });
 
 for (const route of ["threads", "threads/unread-count"]) {
-  test(`a 404 on GET /${route} means a wrong project: a 502 that says so`, async () => {
+  test(`a 404 on GET /${route} means no inbox API at that address: a 502 that says so`, async () => {
     const { handler } = setup({ respond: () => Response.json({ error: "Not found" }, { status: 404 }) });
     const res = await handler(new Request(`${BASE}/${route}`));
     assert.equal(res.status, 502);
-    assert.match(((await res.json()) as { error: string }).error, /doesn't recognise this app's project/);
+    assert.match(((await res.json()) as { error: string }).error, /didn't recognise this app's request/);
   });
 }
 
@@ -447,19 +447,27 @@ test("a non-JSON answer (a proxy's HTML error page) is a 502", async () => {
 
 // --- configuration ----------------------------------------------------------
 
+test("config: the key is the one setting; the address is Reacharound's own", () => {
+  for (const url of [undefined, "", "  "]) {
+    const c = normalizeReacharoundConfig({ reacharound: { key: KEY, url }, authorize: async () => null });
+    assert.equal(c.inboxApiBase, "https://reacharound.xyz/api/inbox");
+  }
+  assert.equal(REACHAROUND_URL, "https://reacharound.xyz");
+});
+
 test("config: plain http is allowed only to this machine", () => {
   for (const url of ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"]) {
     const c = normalizeReacharoundConfig({
-      reacharound: { url, projectId: PROJECT, key: KEY },
+      reacharound: { url, key: KEY },
       authorize: async () => null,
     });
     assert.ok(c.inboxApiBase.startsWith(url));
   }
 });
 
-test("config: builds the inbox API base from url + projectId, trailing slash or not", () => {
+test("config: builds the inbox API base from a url, trailing slash or not", () => {
   const a = normalizeReacharoundConfig({
-    reacharound: { url: `${RA}/`, projectId: PROJECT, key: KEY },
+    reacharound: { url: `${RA}/`, key: KEY },
     authorize: async () => null,
   });
   assert.equal(a.inboxApiBase, UPSTREAM);
@@ -467,20 +475,26 @@ test("config: builds the inbox API base from url + projectId, trailing slash or 
   assert.equal(a.timeoutMs, 15_000);
 });
 
-test("config: a bad url, project id or empty key fails at creation", () => {
+test("config: a bad url, or a missing or foreign key, fails at creation without repeating the key", () => {
   const make = (reacharound: SupportInboxReacharoundConfig["reacharound"]) => () =>
     normalizeReacharoundConfig({ reacharound, authorize: async () => null });
-  assert.throws(make({ url: "not a url", projectId: PROJECT, key: KEY }), /not a URL/);
-  assert.throws(make({ url: "ftp://ra.example", projectId: PROJECT, key: KEY }), /must be https/);
-  assert.throws(make({ url: RA, projectId: "bfl", key: KEY }), /not a uuid/);
-  assert.throws(make({ url: "http://ra.example", projectId: PROJECT, key: KEY }), /must be https/);
-  assert.throws(make({ url: RA, projectId: PROJECT, key: "  " }), /key is empty/);
+  assert.throws(make({ url: "not a url", key: KEY }), /not a URL/);
+  assert.throws(make({ url: "ftp://ra.example", key: KEY }), /must be https/);
+  assert.throws(make({ url: "http://ra.example", key: KEY }), /must be https/);
+  assert.throws(make({ key: "  " }), /key is empty/);
+  for (const key of ["re_a_resend_key", "REACHAROUND_INBOX_KEY=rik_x", '"rik_quoted"']) {
+    assert.throws(make({ key }), (error: Error) => {
+      assert.match(error.message, /isn't a Reacharound inbox key/);
+      assert.ok(!error.message.includes(key), "the error must not repeat the key");
+      return true;
+    });
+  }
 });
 
 test("createSupportInbox in Reacharound mode needs no db, Resend key or webhook", async () => {
   const calls: string[] = [];
   const inbox = createSupportInbox({
-    reacharound: { url: RA, projectId: PROJECT, key: KEY },
+    reacharound: { url: RA, key: KEY },
     authorize: async () => ({ id: "a", email: "jane@betterfans.link" }),
     fetch: (async (input: RequestInfo | URL) => {
       calls.push(String(input));

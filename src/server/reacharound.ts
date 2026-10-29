@@ -54,14 +54,14 @@ const NOTHING_TO_SYNC: SyncResponse = { scanned: 0, imported: 0, skipped: 0, fai
 
 type Upstream = {
   method: "GET" | "POST";
-  /** Path under `{url}/api/inbox/{projectId}`, already encoded. */
+  /** Path under `{url}/api/inbox`, already encoded. */
   path: string;
   body?: Record<string, unknown>;
   /**
-   * The list and the unread count can only 404 when the project itself is
-   * wrong (unknown or archived id, or its inbox switched off): that is this
-   * app's configuration, like a refused key. A thread or attachment 404 is a
-   * real "not found" and passes through.
+   * The list and the unread count can only 404 when there is no inbox API at
+   * the address: a `url` pointing somewhere else, or a Reacharound older than
+   * the one-key routes. That is this app's configuration, like a refused key.
+   * A thread or attachment 404 is a real "not found" and passes through.
    */
   notFoundIsConfig?: boolean;
 };
@@ -86,7 +86,7 @@ export function createReacharoundRouter(
    *  - 401: the inbox key was refused (revoked, rotated, or never set). That is
    *    this app's configuration, not the admin's request, and passing a 401 to
    *    a signed-in admin would read as "you are logged out".
-   *  - 404 on the list or the count: the project id is wrong (see
+   *  - 404 on the list or the count: no inbox API at that address (see
    *    `notFoundIsConfig`), which a bare "Not found" would hide.
    *  - Reacharound unreachable or too slow (network error / timeout), or
    *    answering with a redirect: the key is never re-sent to wherever a
@@ -139,13 +139,13 @@ export function createReacharoundRouter(
     }
 
     if (res.status === 404 && upstream.notFoundIsConfig) {
-      console.error("[support-inbox] Reacharound does not know this project, or its inbox is off", {
+      console.error("[support-inbox] Reacharound has no inbox API at this address", {
         path: loggedPath(upstream.path),
       });
       return Response.json(
         {
           error:
-            "The support inbox isn't connected: Reacharound doesn't recognise this app's project, or its inbox is switched off. Ask an admin to check the project id.",
+            "The support inbox isn't connected: Reacharound didn't recognise this app's request. Ask the app's developer to check the support inbox setup.",
         },
         { status: 502 },
       );
