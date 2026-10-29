@@ -101,8 +101,8 @@ function normalizeMessage(message: string, fallback: string): string {
 }
 
 export function getErrorMessage(error: unknown, fallback: string): string {
-  const zod = zodMessages(error);
-  if (zod.length > 0) return zod[0];
+  const [firstZod] = zodMessages(error);
+  if (firstZod) return firstZod;
 
   const payloadMessage = firstMessageFromPayload(error);
   if (payloadMessage) return normalizeMessage(payloadMessage, fallback);
