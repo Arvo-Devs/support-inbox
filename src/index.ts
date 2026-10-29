@@ -29,8 +29,9 @@ type RouteHandlers = {
  *    Reacharound, which holds the mail; there is no database, no Resend key
  *    and no webhook, so only `routeHandlers` is returned.
  *  - **Self-hosted** (`{ db, resendApiKey, fromEmail, webhookSecret, … }`) —
- *    the app stores and sends its own mail; mount `webhookHandler` at the
- *    resend-inbound endpoint too.
+ *    the app stores and sends its own mail, for an app whose mail must stay
+ *    on its own servers (kept on purpose, 2026-10-28); mount `webhookHandler`
+ *    at the resend-inbound endpoint too.
  */
 export function createSupportInbox(config: SupportInboxReacharoundConfig): {
   routeHandlers: RouteHandlers;

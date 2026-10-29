@@ -4,8 +4,8 @@ A support-email inbox for your admin panel. Customers email your public support 
 
 It runs in one of two modes:
 
-- **Reacharound mode — the standard install.** [Reacharound](https://github.com/Arvo-Devs/Reacharound-Emails) is the hub that receives every project's support mail. Your app keeps the package's routes and screens, and each route passes the request on to Reacharound with your brand's **inbox key** and the admin who is acting. The key is the one setting: it tells Reacharound which brand you are, and the package already knows where Reacharound is. Your app has **no tables, no webhook and no Resend key**; the same conversations show in Reacharound's own Inbox, in step. See [Reacharound mode](#reacharound-mode-standard).
-- **Self-hosted mode.** The app stores and sends its own mail: its own DB tables, webhook endpoint and secret, Resend domain and API key. Kept for now; see [Self-hosted mode](#self-hosted-mode).
+- **Reacharound mode — the standard install.** [Reacharound](https://github.com/Arvo-Devs/Reacharound-Emails) is the shared hub for support mail. Your app keeps the package's routes and screens, and each route passes the request on to Reacharound with your brand's **inbox key** and the admin who is acting. The key is the one setting: it tells Reacharound which brand you are, and the package already knows where Reacharound is. Your app has **no tables, no webhook and no Resend key**; the same conversations show in Reacharound's own Inbox, in step. See [Reacharound mode](#reacharound-mode-standard).
+- **Self-hosted mode — for an app whose support mail must stay on its own servers.** The app stores and sends its own mail: its own DB tables, webhook endpoint and secret, Resend domain and API key, and nothing goes through Reacharound. Fully supported; see [Self-hosted mode](#self-hosted-mode).
 
 Improvements ship via a version bump that each host adopts on its own schedule.
 
@@ -127,6 +127,8 @@ How it behaves:
 ## Self-hosted mode
 
 The app stores and sends its own mail. Everything in this section, down to *Behavior notes*, applies to self-hosted installs only.
+
+To keep the mail out of Reacharound entirely, the Resend account the app receives on must not also be a brand in Reacharound: Reacharound's webhook takes every email that account receives.
 
 ### Mounting
 

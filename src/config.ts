@@ -148,16 +148,16 @@ export function normalizeBasePath(value: string | undefined): string {
 export type SupportInboxFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
- * Where Reacharound lives. Every app talks to this one hub, so the package
- * knows the address and an app never sets it (2026-10-28: one key, nothing
- * else to configure).
+ * Where Reacharound lives. Every Reacharound-mode app talks to this one hub,
+ * so the package knows the address and an app never sets it (2026-10-28: one
+ * key, nothing else to configure). Self-hosted mode never contacts it.
  */
 export const REACHAROUND_URL = "https://reacharound.xyz";
 
 /**
  * Reacharound mode (PRO-5000): the app keeps the package's routes and screens,
- * but holds no support data. Reacharound — the hub that receives every
- * project's support mail — is the store, and each route forwards to its inbox
+ * but holds no support data. Reacharound — the shared hub for support
+ * mail — is the store, and each route forwards to its inbox
  * API (`/api/inbox/…`) with this brand's inbox key and the acting admin. The
  * key alone tells Reacharound which brand is asking, so it is the app's one
  * setting. No `db`, no Resend key, no webhook: Reacharound receives, threads
@@ -174,8 +174,8 @@ export type SupportInboxReacharoundConfig = {
      */
     key: string;
     /**
-     * Leave it out. Defaults to `REACHAROUND_URL`, the one hub every app talks
-     * to; only for pointing a development copy at a Reacharound running on
+     * Leave it out. Defaults to `REACHAROUND_URL`, the one hub every
+     * Reacharound-mode app talks to; only for pointing a development copy at a Reacharound running on
      * this machine. https only (http for localhost). Empty means the default.
      */
     url?: string;
