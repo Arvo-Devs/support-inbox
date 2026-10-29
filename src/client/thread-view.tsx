@@ -1,25 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Mail, MailOpen } from "lucide-react";
+import { ArrowLeft, Ban, Mail, MailOpen } from "lucide-react";
 
 import { Badge, Button, ConfirmDialog, ErrorMessage, toast } from "../ui/ui-deps";
 import type { MessageDto, ThreadDetailResponse, ThreadStatus } from "../shared/types";
 import { getApiErrorMessage, getThread, setThreadRead, setThreadStatus } from "./api";
 import { useSupportInboxBasePath } from "./context";
+import { defaultExpandedIds } from "./conversation";
 import { keys } from "./keys";
 import { MessageItem } from "./message-item";
 import { ReplyBox } from "./reply-box";
 
 const statusTone = { open: "up", closed: "neutral", spam: "down" } as const;
 
-export type ThreadViewProps = { threadId: string };
+export type ThreadViewProps = {
+  threadId: string;
+  /** Back to the list; shown below the lg breakpoint, where the list is hidden. */
+  onBack?: () => void;
+};
 
-export function ThreadView({ threadId }: ThreadViewProps) {
+export function ThreadView({ threadId, onBack }: ThreadViewProps) {
   const basePath = useSupportInboxBasePath();
   const queryClient = useQueryClient();
   const [spamConfirmOpen, setSpamConfirmOpen] = useState(false);
+  // Messages someone opened or closed by hand; the rest follow defaultExpandedIds.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Scroll to the newest message when the conversation first loads and after
+  // our own reply lands; mail that arrives by polling leaves the reader alone.
+  const scrollToEndRef = useRef(true);
 
   const detail = useQuery({
     queryKey: keys.thread(threadId),
@@ -91,7 +102,16 @@ export function ThreadView({ threadId }: ThreadViewProps) {
     if (detailData.thread.unread) markRead(true);
   }, [detailData, threadId, markRead]);
 
+  const messageCount = detailData?.messages.length ?? 0;
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || messageCount === 0 || !scrollToEndRef.current) return;
+    scrollToEndRef.current = false;
+    el.scrollTop = el.scrollHeight;
+  }, [messageCount]);
+
   function handleSent(message: MessageDto) {
+    scrollToEndRef.current = true;
     queryClient.setQueryData<ThreadDetailResponse>(keys.thread(threadId), (prev) =>
       prev ? { ...prev, messages: [...prev.messages, message] } : prev,
     );
@@ -118,39 +138,53 @@ export function ThreadView({ threadId }: ThreadViewProps) {
   }
 
   const { thread, customer, messages } = detail.data;
+  const expandedByDefault = defaultExpandedIds(messages);
+  const collapsible = messages.length > 1;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2
-              className="truncate text-base font-semibold text-foreground"
-              title={thread.subject}
-            >
-              {thread.subject}
-            </h2>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              <span className="min-w-0 truncate">
-                {thread.customerName
-                  ? `${thread.customerName} · ${thread.customerEmail}`
-                  : thread.customerEmail}
-              </span>
-              {customer ? (
-                <a
-                  href={customer.href}
-                  className="underline underline-offset-2 hover:text-foreground"
-                >
-                  {customer.label}
-                </a>
-              ) : null}
-            </div>
+      {/* One compact block: subject and sender on the left, actions beside
+          them when there's room, so the message gets the height. */}
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2 border-b border-border px-3 py-3 sm:px-4">
+        {onBack ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Back to conversations"
+            className="-ml-1 shrink-0 lg:hidden"
+            onClick={onBack}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        ) : null}
+        <div className="min-w-0 flex-1 basis-56">
+          <h2
+            className="line-clamp-2 break-words text-base font-semibold leading-snug text-foreground"
+            title={thread.subject}
+          >
+            {thread.subject}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="min-w-0 truncate">
+              {thread.customerName
+                ? `${thread.customerName} · ${thread.customerEmail}`
+                : thread.customerEmail}
+            </span>
+            {customer ? (
+              <a
+                href={customer.href}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                {customer.label}
+              </a>
+            ) : null}
+            <Badge tone={statusTone[thread.status]} className="h-5 px-1.5 text-[11px] capitalize">
+              {thread.status}
+            </Badge>
           </div>
-          <Badge tone={statusTone[thread.status]} className="shrink-0 capitalize">
-            {thread.status}
-          </Badge>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <Button
             type="button"
             variant="ghost"
@@ -199,9 +233,25 @@ export function ThreadView({ threadId }: ThreadViewProps) {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      {/* A flex column, so collapsed messages keep their one line and an
+          expanded HTML message (flex-1 in message-item.tsx) takes the rest of
+          the pane; past its minimum height the pane scrolls. */}
+      <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
         {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+          <MessageItem
+            key={message.id}
+            message={message}
+            expanded={toggled[message.id] ?? expandedByDefault.has(message.id)}
+            onToggle={
+              collapsible
+                ? () =>
+                    setToggled((prev) => ({
+                      ...prev,
+                      [message.id]: !(prev[message.id] ?? expandedByDefault.has(message.id)),
+                    }))
+                : undefined
+            }
+          />
         ))}
       </div>
 

@@ -253,7 +253,8 @@ These hold in both modes unless marked; in Reacharound mode Reacharound is the s
 - **Admin replies do not appear in your mail provider's Sent folder.** The app database is authoritative for outbound support mail.
 - **Replies deliberately skip suppression lists** (an explicit human reply outranks an automated suppression), and hard bounces will feed whatever bounce webhook the host already runs.
 - **(Self-hosted) Sync recovers missed or failed mail within the newest `SYNC_MAX_PAGES × SYNC_PAGE_SIZE` (250) inbound emails**, scanning every page up to the cap each run. Older gaps than that need Resend's dashboard. A host scheduler can automate sync by POSTing `{basePath}/sync` with an authorized credential.
-- **HTML bodies render in a sandboxed iframe**: no `allow-scripts`, no `allow-same-origin`, default-deny CSP, remote images blocked by default (tracking pixels included) with per-message opt-in. Links escape the sandbox into normal tabs; opened tabs get no opener reference.
+- **HTML bodies render in a sandboxed iframe**: no `allow-scripts`, no `allow-same-origin`, default-deny CSP. Images load without a click (`https:`, `data:`, `blob:`), so mail reads the way it was sent; the trade is that a sender's tracking pixel can tell the mail was opened, as in any mainstream mail client. Fonts, stylesheets, frames and every other remote load stay blocked, and no referrer is sent. Links escape the sandbox into normal tabs; opened tabs get no opener reference.
+- **Reading:** the newest message (and the customer's newest, once you've replied) opens expanded and fills the reading pane; older messages are one-line summaries that open on click. Fixed-width mail shrinks to fit a narrow pane or a phone. **Full size** opens a message in a near-full-screen view. The reply box stays one line until clicked or holding a draft. The host gives the page its height (e.g. `h-[calc(100dvh-14rem)]`); the inbox fills it.
 
 ## Supply-chain rules for this repo
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Inbox, KeyRound, RefreshCw, Search } from "lucide-react";
+import { Inbox, KeyRound, RefreshCw, Search } from "lucide-react";
 
 import { Button, EmptyState, ErrorMessage, Input, cn, toast } from "../ui/ui-deps";
 import type { ThreadStatus } from "../shared/types";
@@ -102,7 +102,7 @@ function SupportInboxPageInner({ sync }: { sync: boolean }) {
       {/* Thread list column — on mobile it swaps out for the detail pane. */}
       <div
         className={cn(
-          "w-full flex-col lg:flex lg:w-96 lg:shrink-0 lg:border-r lg:border-border",
+          "w-full flex-col lg:flex lg:w-80 lg:shrink-0 lg:border-r lg:border-border 2xl:w-96",
           showDetail ? "hidden" : "flex",
         )}
       >
@@ -196,21 +196,13 @@ function SupportInboxPageInner({ sync }: { sync: boolean }) {
       {/* Detail pane */}
       <div className={cn("min-w-0 flex-1 flex-col", showDetail ? "flex" : "hidden lg:flex")}>
         {selectedThreadId ? (
-          <>
-            <div className="border-b border-border p-2 lg:hidden">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedThreadId(null)}
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1">
-              <ThreadView key={selectedThreadId} threadId={selectedThreadId} />
-            </div>
-          </>
+          <div className="min-h-0 flex-1">
+            <ThreadView
+              key={selectedThreadId}
+              threadId={selectedThreadId}
+              onBack={() => setSelectedThreadId(null)}
+            />
+          </div>
         ) : (
           <div className="flex flex-1 items-center justify-center p-6">
             <EmptyState

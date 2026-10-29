@@ -29,6 +29,9 @@ export function ReplyBox({ threadId, onSent }: ReplyBoxProps) {
   // (`reply-attempt.ts`): a reload or a thread switch keeps both, so a retry
   // after a lost answer replays the same id and the server dedupes it.
   const [text, setTextState] = useState(() => readReplyDraft(threadId));
+  // One line until someone clicks in (or a draft is waiting), so the message
+  // above keeps the height while they read.
+  const [focused, setFocused] = useState(false);
   const setText = (next: string) => {
     setTextState(next);
     writeReplyDraft(threadId, next);
@@ -48,6 +51,7 @@ export function ReplyBox({ threadId, onSent }: ReplyBoxProps) {
     },
   });
 
+  const open = focused || text.length > 0 || replyMutation.isPending;
   const overLimit = text.length > MAX_LENGTH;
   const canSubmit = text.trim().length > 0 && !overLimit && !replyMutation.isPending;
 
@@ -58,7 +62,7 @@ export function ReplyBox({ threadId, onSent }: ReplyBoxProps) {
 
   return (
     <form
-      className="border-t border-border p-4"
+      className="border-t border-border p-3 sm:px-4"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -77,10 +81,13 @@ export function ReplyBox({ threadId, onSent }: ReplyBoxProps) {
         // last message set one, which the thread data does not carry.
         placeholder="Write a reply… (plain text)"
         aria-label="Reply"
-        className="min-h-24"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        rows={open ? undefined : 1}
+        className={open ? "max-h-[40vh] min-h-28 resize-y" : "h-10 min-h-10 resize-none py-2"}
         disabled={replyMutation.isPending}
       />
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+      <div className={cn("mt-2 flex-wrap items-center justify-between gap-3", open ? "flex" : "hidden")}>
         <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <span>Replies go to the sender only.</span>
           {text.length > COUNTER_THRESHOLD ? (
