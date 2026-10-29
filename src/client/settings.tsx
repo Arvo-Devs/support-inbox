@@ -1,6 +1,6 @@
 "use client";
 
-// Settings for the Email page in Reacharound mode (2026-10-29, Kai: "There
+// Settings for the Email page in Reacharound mode (2026-10-28, Kai: "There
 // should be a settings button in the top right to be able to add the key over
 // here. That should be a part of the import too"). The host puts
 // <SupportInboxSettings /> in its page header, top right, and the page's

@@ -172,7 +172,7 @@ export function isInboxKey(value: string): boolean {
  * key alone tells Reacharound which brand is asking. An admin pastes it on the
  * Email page's Settings and the app keeps it, encrypted, in one small table
  * (`keyStore`), so connecting needs no server setting and no redeploy
- * (2026-10-29). No Resend key, no webhook: Reacharound receives, threads and
+ * (2026-10-28). No Resend key, no webhook: Reacharound receives, threads and
  * sends; the app is a window onto it, kept in step with the hub's own Inbox
  * by construction.
  */

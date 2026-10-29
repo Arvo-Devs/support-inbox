@@ -80,7 +80,7 @@ type Upstream = {
  *
  * Never a 502 or 504: a proxy in front of the app can swap those for its own
  * error page. That is how BetterFans Link's admins saw a bare "Request failed
- * (502)" instead of "Reacharound refused this app's inbox key" (2026-10-29).
+ * (502)" instead of "Reacharound refused this app's inbox key" (2026-10-28).
  * The Settings fixes answer 409 (client errors pass through proxies untouched)
  * and the retries 503.
  */

@@ -11,7 +11,7 @@ import {
   sealKey,
 } from "./key-store";
 
-// The inbox key Settings saves (Reacharound mode, 2026-10-29): sealed under a
+// The inbox key Settings saves (Reacharound mode, 2026-10-28): sealed under a
 // key derived from the host's secret, opened only with that secret, never
 // stored in the clear, and a key that can't be opened reads as "ask again"
 // rather than an error. The drizzle store runs against a stand-in for the

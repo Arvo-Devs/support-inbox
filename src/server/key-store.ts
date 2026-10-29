@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import type { SupportInboxDb } from "../config";
 import { supportInboxSettings } from "../schema";
 
-// Reacharound mode: the brand's inbox key, kept by the app itself (2026-10-29,
+// Reacharound mode: the brand's inbox key, kept by the app itself (2026-10-28,
 // Kai: "There should be a settings button in the top right to be able to add
 // the key over here. That should be a part of the import too"). An admin
 // pastes the key on the Email page's Settings and it lives here from then on,

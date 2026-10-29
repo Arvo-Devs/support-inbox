@@ -337,7 +337,7 @@ test("SupportInboxPage keeps the Sync button by default (self-hosted mode unchan
   assert.ok(html.includes('aria-label="Sync inbox"'));
 });
 
-// --- Settings and the Connect panel (2026-10-29) -----------------------------
+// --- Settings and the Connect panel (2026-10-28) -----------------------------
 
 test("Settings saves a key Reacharound takes, and the screens work with it at once", async () => {
   // An app with no key saved yet. The fake Reacharound knows KEY.

@@ -521,7 +521,7 @@ test("createSupportInbox in Reacharound mode needs no Resend key or webhook", as
   assert.deepEqual(calls, [`${UPSTREAM}/threads/unread-count`]);
 });
 
-// --- the saved key and Settings (2026-10-29) ------------------------------------
+// --- the saved key and Settings (2026-10-28) ------------------------------------
 
 const NEW_KEY = `rik_${"N".repeat(32)}`;
 
