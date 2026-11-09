@@ -8,7 +8,7 @@ import { Badge, Button, ConfirmDialog, ErrorMessage, toast } from "../ui/ui-deps
 import type { MessageDto, ThreadDetailResponse, ThreadStatus } from "../shared/types";
 import { getApiErrorMessage, getThread, setThreadRead, setThreadStatus } from "./api";
 import { useSupportInboxBasePath } from "./context";
-import { defaultExpandedIds } from "./conversation";
+import { defaultExpandedIds, readToggle } from "./conversation";
 import { keys } from "./keys";
 import { MessageItem } from "./message-item";
 import { ReplyBox } from "./reply-box";
@@ -140,6 +140,7 @@ export function ThreadView({ threadId, onBack }: ThreadViewProps) {
   const { thread, customer, messages } = detail.data;
   const expandedByDefault = defaultExpandedIds(messages);
   const collapsible = messages.length > 1;
+  const toggle = readToggle(thread.unread);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -189,14 +190,14 @@ export function ThreadView({ threadId, onBack }: ThreadViewProps) {
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => readMutation.mutate(!thread.unread)}
+            onClick={() => readMutation.mutate(toggle.read)}
           >
             {thread.unread ? (
               <MailOpen className="h-3.5 w-3.5" aria-hidden="true" />
             ) : (
               <Mail className="h-3.5 w-3.5" aria-hidden="true" />
             )}{" "}
-            {thread.unread ? "Mark read" : "Mark unread"}
+            {toggle.label}
           </Button>
           {thread.status === "spam" ? (
             <Button

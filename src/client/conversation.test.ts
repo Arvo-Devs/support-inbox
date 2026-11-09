@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { defaultExpandedIds, messagePreview } from "./conversation";
+import { defaultExpandedIds, messagePreview, readToggle } from "./conversation";
 import { buildDoc } from "./email-doc";
 
 const inbound = (id: string) => ({ id, direction: "inbound" as const });
@@ -33,6 +33,11 @@ test("the collapsed line prefers the snippet and flattens whitespace", () => {
   assert.equal(messagePreview({ snippet: "Hi  there\nfriend", textBody: "ignored" }), "Hi there friend");
   assert.equal(messagePreview({ snippet: null, textBody: "Line one\n\nLine two" }), "Line one Line two");
   assert.equal(messagePreview({ snippet: null, textBody: null }), "");
+});
+
+test("Mark unread sends read: false, and Mark read sends read: true", () => {
+  assert.deepEqual(readToggle(false), { label: "Mark unread", read: false });
+  assert.deepEqual(readToggle(true), { label: "Mark read", read: true });
 });
 
 // Images load without a click (Kai, 2026-10-28), but nothing else remote does:

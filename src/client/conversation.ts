@@ -27,3 +27,17 @@ export function defaultExpandedIds(
 export function messagePreview(message: Pick<MessageDto, "snippet" | "textBody">): string {
   return (message.snippet ?? message.textBody ?? "").replace(/\s+/g, " ").trim();
 }
+
+/**
+ * The read toggle in a conversation's header: its words, and the `read` value it
+ * sends. An unread conversation offers Mark read and sends `read: true`; a read
+ * one offers Mark unread and sends `read: false`. Both come from here because
+ * the button once sent the opposite of its words: Mark unread marked the
+ * conversation read, so it never came back as unread (2026-11-08).
+ */
+export function readToggle(unread: boolean): {
+  label: "Mark read" | "Mark unread";
+  read: boolean;
+} {
+  return unread ? { label: "Mark read", read: true } : { label: "Mark unread", read: false };
+}
