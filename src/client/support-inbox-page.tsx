@@ -7,6 +7,7 @@ import { Inbox, KeyRound, RefreshCw, Search } from "lucide-react";
 import { Button, EmptyState, ErrorMessage, Input, cn, toast } from "../ui/ui-deps";
 import type { ThreadStatus } from "../shared/types";
 import { getApiErrorMessage, listThreads, needsSettings, postSync, type ApiRequestError } from "./api";
+import { connectPanelError } from "./connect-panel";
 import { SupportInboxProvider, useSupportInboxBasePath } from "./context";
 import { keys } from "./keys";
 import { SupportInboxSettings } from "./settings";
@@ -91,11 +92,17 @@ function SupportInboxPageInner({ sync }: { sync: boolean }) {
     [threadsQuery.data],
   );
 
+  // Not connected, or the saved key stopped working: the whole card says so,
+  // with the button that fixes it, instead of an error in the list column. It
+  // stays up while the list loads again, so a Settings dialog opened from it
+  // stays open (connect-panel.ts).
+  const [panelError, setPanelError] = useState<ApiRequestError | null>(null);
+  const connectError = connectPanelError(threadsQuery, panelError);
+  if (connectError !== panelError) setPanelError(connectError);
+
   const showDetail = selectedThreadId !== null;
 
-  // Not connected, or the saved key stopped working: the whole card says so,
-  // with the button that fixes it, instead of an error in the list column.
-  if (needsSettings(threadsQuery.error)) return <ConnectPanel error={threadsQuery.error} />;
+  if (connectError) return <ConnectPanel error={connectError} />;
 
   return (
     <div className="flex h-full min-h-[520px] overflow-hidden rounded-2xl border border-border/70 bg-card">

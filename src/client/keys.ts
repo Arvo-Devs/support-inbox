@@ -4,8 +4,10 @@
 
 export const keys = {
   all: ["support-inbox"] as const,
+  /** Every conversation list, whatever its filter. */
+  lists: () => [...keys.all, "threads"] as const,
   threads: (filter: { status: string; q: string }) =>
-    [...keys.all, "threads", filter] as const,
+    [...keys.lists(), filter] as const,
   thread: (id: string) => [...keys.all, "thread", id] as const,
   unreadCount: () => [...keys.all, "unread-count"] as const,
   connection: () => [...keys.all, "connection"] as const,

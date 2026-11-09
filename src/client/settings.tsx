@@ -16,6 +16,7 @@ import { CircleAlert, CircleCheck, Settings } from "lucide-react";
 import { Button, Dialog, ErrorMessage, Input, cn, toast } from "../ui/ui-deps";
 import type { ConnectionProblem, ConnectionResponse } from "../shared/types";
 import { ApiRequestError, getConnection, saveInboxKey } from "./api";
+import { reloadAfterKeySaved } from "./connect-panel";
 import { useSupportInboxBasePath } from "./context";
 import { formatFullDateTime } from "./format";
 import { keys } from "./keys";
@@ -66,8 +67,10 @@ function SettingsDialog({ basePath, onClose }: { basePath: string; onClose: () =
     mutationFn: (value: string) => saveInboxKey(basePath, value),
     onSuccess: (result) => {
       queryClient.setQueryData(keys.connection(), result);
-      // The list, the open conversation and the unread badge all load again.
-      void queryClient.invalidateQueries({ queryKey: keys.all });
+      // The list, the open conversation and the unread badge all load again. A
+      // list that failed starts over, so the conversations replace the Connect
+      // panel at once.
+      void reloadAfterKeySaved(queryClient);
       toast.success("Email is connected to Reacharound");
       onClose();
     },
